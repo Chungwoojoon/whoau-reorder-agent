@@ -77,12 +77,6 @@ function activeWeekCount(style) {
   return count ? `${count}주` : "-";
 }
 
-function plannerFor(styleCode) {
-  const planners = ["김민영", "이송연", "이재은", "김수호", "나예원"];
-  const seed = String(styleCode || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return planners[seed % planners.length];
-}
-
 function reorderRound(style) {
   const maxOffset = Math.max(0, ...(data.recommendations || [])
     .filter((row) => row.styleCode === style.styleCode)
@@ -201,7 +195,6 @@ function renderDetailTable() {
     <th>복종</th>
     <th>월</th>
     <th>아이템</th>
-    <th>기획자</th>
     <th>스타일코드</th>
     <th class="num">소진율목표</th>
     <th class="num">실적</th>
@@ -240,7 +233,6 @@ function renderDetailTable() {
       <td class="muted-cell">${safe(row.category || "-")}</td>
       <td class="muted-cell">${activeMonth(style)}</td>
       <td class="item-cell">${safe(row.styleName || "-")}</td>
-      <td><button class="planner-pill" type="button">${plannerFor(row.styleCode)}</button></td>
       <td class="style-code-cell"><button class="style-pill wide" type="button" data-style="${row.styleCode}" title="${safe(styleCodeLabel(style))}">${safe(styleCodeLabel(style))}</button></td>
       <td class="num strong-num">${formatPlain(targetQty)}</td>
       <td class="num rate ${rateClass(salesRate)}">${salesRate}%</td>
@@ -309,6 +301,8 @@ function modalSkuRows(style) {
         size: row.size,
         thisWeek: Math.round(thisWeekTotal * share),
         fourWeeks: Number(row.recommendedQty || 0),
+        recentSales: Number(row.recentSales || 0),
+        sellThrough: Number(row.sellThrough || 0),
       };
     });
 }
@@ -325,11 +319,11 @@ function buildModalSkuTable(style) {
           <tr><th>컬러</th><th>사이즈</th><th class="num">이번주</th><th class="num">4주 누계</th></tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
+          ${rows.map((row, index) => `
             <tr>
               <td>${safe(row.color)}</td>
               <td>${safe(row.size)}</td>
-              <td class="num">${formatPlain(row.thisWeek)}</td>
+              <td class="num"><button class="sku-reorder-button" type="button" data-sku-index="${index}">${formatPlain(row.thisWeek)}</button></td>
               <td class="num">${formatPlain(row.fourWeeks)}</td>
             </tr>
           `).join("")}
@@ -337,6 +331,119 @@ function buildModalSkuTable(style) {
       </table>
     </div>
   `;
+}
+
+function estimatedSkuOrderQty(sku) {
+  const sellThrough = Number(sku.sellThrough || 0);
+  if (sellThrough > 0) return Math.round(Number(sku.recentSales || 0) / (sellThrough / 100));
+  return Number(sku.recentSales || 0) + Number(sku.fourWeeks || sku.recommendedQty || 0);
+}
+
+function styleTargetQty(style) {
+  const five = fiveWeekQty(style.styleCode);
+  return Math.max(five + Number(style.totalQty || 0), Math.round(Number(style.inboundQty || 0) * 0.72));
+}
+
+function buildSkuTrend(style, sku) {
+  const trend = (style.trend || []).filter((row) => Number(row.actualQty || 0) > 0 || Number(row.targetQty || 0) > 0);
+  const actualTotal = Math.max(1, (style.trend || []).reduce((sum, row) => sum + Number(row.actualQty || 0), 0));
+  const skuSales = Number(sku.recentSales || 0);
+  const skuOrderQty = estimatedSkuOrderQty(sku);
+  const totalOrderQty = Number(style.orderQty || style.inboundQty || 0) || (style.skuPlan || []).reduce((sum, row) => sum + estimatedSkuOrderQty(row), 0) || 1;
+  const orderShare = skuOrderQty / totalOrderQty;
+  let actualCum = 0;
+  let targetCum = 0;
+  return trend.map((row) => {
+    actualCum += (Number(row.actualQty || 0) / actualTotal) * skuSales;
+    targetCum += Number(row.targetQty || 0) * orderShare;
+    return {
+      label: row.label,
+      actualQty: Math.round(actualCum),
+      targetQty: Math.round(targetCum),
+    };
+  });
+}
+
+function buildSkuChartSvg(points, title) {
+  const width = 760;
+  const height = 300;
+  const pad = { top: 18, right: 26, bottom: 42, left: 58 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const maxValue = Math.max(1, ...points.flatMap((row) => [row.actualQty || 0, row.targetQty || 0]));
+  const xStep = points.length > 1 ? innerW / (points.length - 1) : innerW;
+  const y = (value) => pad.top + innerH - (Number(value || 0) / maxValue) * innerH;
+  const toPoints = (key) => points.map((row, index) => ({
+    x: pad.left + index * xStep,
+    y: y(row[key]),
+    value: row[key],
+    label: row.label,
+  }));
+  const actual = toPoints("actualQty");
+  const target = toPoints("targetQty");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const gy = pad.top + innerH - ratio * innerH;
+    return `<line class="grid-line" x1="${pad.left}" y1="${gy}" x2="${width - pad.right}" y2="${gy}"></line><text class="chart-label" x="8" y="${gy + 4}">${formatPlain(Math.round(maxValue * ratio))}</text>`;
+  }).join("");
+  const labelStep = Math.ceil(Math.max(1, points.length / 7));
+  const labels = points.map((row, index) => {
+    const isLast = index === points.length - 1;
+    const tooCloseToLast = index > points.length - 1 - labelStep;
+    if (!isLast && (index % labelStep !== 0 || tooCloseToLast)) return "";
+    return `<text class="chart-label" x="${pad.left + index * xStep}" y="${height - 13}" text-anchor="middle">${safe(row.label)}</text>`;
+  }).join("");
+  return `
+    <div class="sku-detail-chart">
+      <div class="modal-chart-head">
+        <strong>${safe(title)}</strong>
+        <div class="legend modal-legend"><span>현재까지 판매량</span><span class="target">목표 판매량</span></div>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${safe(title)} 그래프">
+        ${grid}
+        <line class="axis" x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}"></line>
+        <line class="axis" x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}"></line>
+        <path class="actual-line" d="${seriesPath(actual)}"></path>
+        <path class="target-line" d="${seriesPath(target)}"></path>
+        ${actual.map((point) => `<circle class="dot-actual" cx="${point.x}" cy="${point.y}" r="4"><title>${safe(point.label)} ${formatPlain(point.value)}</title></circle>`).join("")}
+        ${target.map((point) => `<circle class="dot-target" cx="${point.x}" cy="${point.y}" r="4"><title>${safe(point.label)} ${formatPlain(point.value)}</title></circle>`).join("")}
+        ${labels}
+      </svg>
+    </div>
+  `;
+}
+
+function openSkuDetail(styleCode, skuIndex) {
+  const style = byStyle.get(styleCode);
+  const sku = modalSkuRows(style || {})[Number(skuIndex)];
+  if (!style || !sku) return;
+  const points = buildSkuTrend(style, sku);
+  const skuOrderQty = estimatedSkuOrderQty(sku);
+  const totalOrderQty = Number(style.orderQty || style.inboundQty || 0) || 1;
+  const targetTotal = Math.round(styleTargetQty(style) * (skuOrderQty / totalOrderQty));
+  const modal = document.createElement("div");
+  modal.className = "sku-detail-backdrop";
+  modal.innerHTML = `
+    <section class="sku-detail-modal" role="dialog" aria-modal="true">
+      <header class="modal-head">
+        <h2>${safe(style.styleCode)} / ${safe(sku.color)} / ${safe(sku.size)}</h2>
+        <button class="modal-close sku-detail-close" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="sku-detail-body">
+        <div class="modal-stats sku-detail-stats">
+          <div><span>현재까지 판매량</span><strong>${formatQty(sku.recentSales)}</strong></div>
+          <div><span>목표 판매량</span><strong>${formatQty(targetTotal)}</strong></div>
+          <div><span>SKU 발주 비중</span><strong>${Math.round((skuOrderQty / totalOrderQty) * 1000) / 10}%</strong></div>
+        </div>
+        ${buildSkuChartSvg(points, "컬러/사이즈 누적 판매량")}
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelector(".sku-detail-close").addEventListener("click", close);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
 }
 
 function seriesPath(points) {
@@ -452,6 +559,9 @@ function openStyleModal(styleCode) {
   `;
   modal.hidden = false;
   document.body.classList.add("modal-open");
+  body.querySelectorAll(".sku-reorder-button").forEach((button) => {
+    button.addEventListener("click", () => openSkuDetail(style.styleCode, button.dataset.skuIndex));
+  });
 }
 
 function closeStyleModal() {

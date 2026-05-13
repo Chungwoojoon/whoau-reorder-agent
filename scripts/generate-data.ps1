@@ -7,6 +7,7 @@ $skuWorkbookPath = Join-Path $sourceDir "컬러별, 사이즈별 소진(1).xlsx"
 $progressMapPath = Join-Path (Split-Path -Parent $PSScriptRoot) "data\progress-similar-map.json"
 $productionPath = Join-Path $sourceDir "후아유 생산정보.csv"
 $legacySalesPath = Join-Path $sourceDir "후아유 주차별 매출.csv"
+$costWorkbookPath = "C:\Users\chung_woojoon01\Desktop\스판재(S) (16-31-17)(1).xlsx"
 $outPath = Join-Path (Split-Path -Parent $PSScriptRoot) "data\app-data.js"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -68,12 +69,13 @@ function Read-SharedStrings($zip) {
   if (-not $entry) { return @() }
   $xml = [xml](Read-ZipText $zip "xl/sharedStrings.xml")
   $strings = @()
-  foreach ($si in $xml.sst.si) {
-    if ($si.t) {
-      $strings += [string]$si.t
+  foreach ($si in $xml.GetElementsByTagName("si")) {
+    $textNodes = @($si.GetElementsByTagName("t"))
+    if ($textNodes.Count -eq 1) {
+      $strings += [string]$textNodes[0].InnerText
     } else {
       $parts = @()
-      foreach ($r in $si.r) { if ($r.t) { $parts += [string]$r.t } }
+      foreach ($t in $textNodes) { $parts += [string]$t.InnerText }
       $strings += ($parts -join "")
     }
   }
@@ -81,26 +83,30 @@ function Read-SharedStrings($zip) {
 }
 
 function CellValue($cell, $sharedStrings) {
-  if ($cell.t -eq "s") {
-    $idx = [int]$cell.v
+  $type = if ($cell -is [System.Xml.XmlElement]) { $cell.GetAttribute("t") } else { [string]$cell.t }
+  $vNode = @($cell.GetElementsByTagName("v") | Select-Object -First 1)
+  $value = if ($vNode.Count -gt 0) { [string]$vNode[0].InnerText } elseif ($cell.v) { [string]$cell.v } else { "" }
+  if ($type -eq "s") {
+    $idx = [int]$value
     if ($idx -ge 0 -and $idx -lt $sharedStrings.Count) { return $sharedStrings[$idx] }
     return ""
   }
-  if ($cell.t -eq "inlineStr") {
-    return [string]$cell.is.t
+  if ($type -eq "inlineStr") {
+    $parts = @()
+    foreach ($t in $cell.GetElementsByTagName("t")) { $parts += [string]$t.InnerText }
+    return ($parts -join "")
   }
-  if ($cell.v) { return [string]$cell.v }
-  return ""
+  return $value
 }
 
 function Read-SheetRows($zip, $sheetPath, $sharedStrings) {
   $xml = [xml](Read-ZipText $zip $sheetPath)
   $rows = @{}
-  foreach ($row in $xml.worksheet.sheetData.row) {
-    $rowNum = [int]$row.r
+  foreach ($row in $xml.GetElementsByTagName("row")) {
+    $rowNum = [int]$row.GetAttribute("r")
     $map = @{}
-    foreach ($cell in $row.c) {
-      $col = ColumnIndex $cell.r
+    foreach ($cell in $row.GetElementsByTagName("c")) {
+      $col = ColumnIndex $cell.GetAttribute("r")
       $map[$col] = CellValue $cell $sharedStrings
     }
     $rows[$rowNum] = $map
@@ -283,6 +289,33 @@ function Build-SkuPlan($styleCode, $reorderTotal, $skuByStyle) {
   return @($plan | Sort-Object @{ Expression = "recommendedQty"; Descending = $true })
 }
 
+function Extract-CostRates($rows) {
+  $byStyle = @{}
+  $maxRow = ($rows.Keys | Measure-Object -Maximum).Maximum
+  for ($r = 1; $r -le $maxRow; $r++) {
+    $styleCode = [string](Get-Cell $rows $r 4)
+    if ($styleCode -notmatch "^WH[A-Z0-9]{7,}") { continue }
+    $rate = To-Number (Get-Cell $rows $r 77)
+    if ($rate -le 0) {
+      $postCost = To-Number (Get-Cell $rows $r 59)
+      $inboundAmount = To-Number (Get-Cell $rows $r 20)
+      if ($postCost -gt 0 -and $inboundAmount -gt 0) {
+        $rate = ($postCost / $inboundAmount / 1.1) * 100
+      }
+    }
+    if ($rate -gt 0) {
+      $byStyle[$styleCode] = [ordered]@{
+        costRate = [math]::Round($rate, 1)
+        preCost = [math]::Round((To-Number (Get-Cell $rows $r 58)))
+        postCost = [math]::Round((To-Number (Get-Cell $rows $r 59)))
+        preCostPerUnit = [math]::Round((To-Number (Get-Cell $rows $r 60)))
+        postCostPerUnit = [math]::Round((To-Number (Get-Cell $rows $r 61)))
+      }
+    }
+  }
+  return $byStyle
+}
+
 function FirstActiveIndex($weekly) {
   for ($i = 0; $i -lt $weekly.Count; $i++) { if (($weekly[$i].actualQty + $weekly[$i].normalQty) -gt 0) { return $i } }
   return 0
@@ -456,6 +489,16 @@ try {
 } finally { $skuZip.Dispose() }
 $skuByStyle = Extract-SkuSheet $skuRows
 
+$costByStyle = @{}
+if (Test-Path $costWorkbookPath) {
+  $costZip = [System.IO.Compression.ZipFile]::OpenRead($costWorkbookPath)
+  try {
+    $costSharedStrings = @(Read-SharedStrings $costZip)
+    $costRows = Read-SheetRows $costZip "xl/worksheets/sheet2.xml" $costSharedStrings
+  } finally { $costZip.Dispose() }
+  $costByStyle = Extract-CostRates $costRows
+}
+
 $stylePayload = @(); $recommendations = @(); $summaryRows = @()
 foreach ($style in $styles2026) {
   $similar = Find-MappedSimilarStyle $style $priorByCode $progressMap
@@ -484,6 +527,7 @@ foreach ($style in $styles2026) {
   }
   $fallbackCategory = Classify-Category $style.styleName
   $meta = if ($metadataByStyle.ContainsKey($style.styleCode)) { $metadataByStyle[$style.styleCode] } else { [ordered]@{ season = "26"; categoryLarge = $fallbackCategory; categoryMid = $fallbackCategory; categorySmall = $fallbackCategory; material = "" } }
+  $cost = if ($costByStyle.ContainsKey($style.styleCode)) { $costByStyle[$style.styleCode] } else { [ordered]@{ costRate = 0; preCost = 0; postCost = 0; preCostPerUnit = 0; postCostPerUnit = 0 } }
   if ($reorderTotal -gt 0) {
     for ($bucket = 0; $bucket -lt 5; $bucket++) {
       $target = if ($bucket -lt $forecast5.Count) { $forecast5[$bucket].targetQty } else { 0 }
@@ -496,12 +540,12 @@ foreach ($style in $styles2026) {
     $lastWeek = @($style.weekly | Select-Object -Last 1)[0]
     $summaryRows += [ordered]@{ season = $meta.season; category = $meta.categoryMid; styleCode = $style.styleCode; styleName = $style.styleName; orderAmount = [math]::Round($reorderTotal * $style.price); inboundAmount = [math]::Round($production.inboundQty * $style.price); weekSalesAmount = [math]::Round($lastWeek.actualQty * $style.price); cumulativeSalesAmount = [math]::Round($style.totalSalesAmount); regularSalesAmount = [math]::Round($style.totalNormalAmount); reorderTotal = [int]$reorderTotal; similarStyleCode = if ($similar) { $similar.style.styleCode } else { "" }; similarStyleName = if ($similar) { $similar.style.styleName } else { "" }; similarScore = if ($similar) { $similar.score } else { 0 }; similarSource = if ($similar -and $similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $style.normalRate }
   }
-  $stylePayload += [ordered]@{ styleCode = $style.styleCode; styleName = $style.styleName; productName = $style.styleName; season = $meta.season; categoryLarge = $meta.categoryLarge; categoryMid = $meta.categoryMid; categorySmall = $meta.categorySmall; price = [int]$style.price; inboundQty = [math]::Round($production.inboundQty); orderQty = [math]::Round($production.orderQty); orderAmount = [math]::Round($style.orderAmountFromWeekly); totalQty = [math]::Round($style.totalQty); totalNormalQty = [math]::Round($style.totalNormalQty); totalSalesAmount = [math]::Round($style.totalSalesAmount); totalNormalAmount = [math]::Round($style.totalNormalAmount); normalRate = $style.normalRate; stock = [int]$estimatedStock; reorderTotal = [int]$reorderTotal; plcWeekOffset = if ($forecast.Count -gt 0) { [int]$forecast[-1].offset } else { 0 }; weekly = @($style.weekly | Select-Object -Last 14); trend = @($fullTrend); forecast = @($forecast | Select-Object -First 12); priorSeries = @($built.priorSeries | Select-Object -First 12); similarStyle = if ($similar) { [ordered]@{ styleCode = $similar.style.styleCode; styleName = $similar.style.styleName; score = $similar.score; source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $similar.style.normalRate; totalQty = $similar.style.totalQty; totalNormalQty = $similar.style.totalNormalQty; orderAmount = $similar.style.orderAmountFromWeekly } } else { $null }; colors = @($colorRows); skuPlan = @($skuPlan) }
+  $stylePayload += [ordered]@{ styleCode = $style.styleCode; styleName = $style.styleName; productName = $style.styleName; season = $meta.season; categoryLarge = $meta.categoryLarge; categoryMid = $meta.categoryMid; categorySmall = $meta.categorySmall; price = [int]$style.price; inboundQty = [math]::Round($production.inboundQty); orderQty = [math]::Round($production.orderQty); orderAmount = [math]::Round($style.orderAmountFromWeekly); totalQty = [math]::Round($style.totalQty); totalNormalQty = [math]::Round($style.totalNormalQty); totalSalesAmount = [math]::Round($style.totalSalesAmount); totalNormalAmount = [math]::Round($style.totalNormalAmount); normalRate = $style.normalRate; costRate = $cost.costRate; preCost = $cost.preCost; postCost = $cost.postCost; preCostPerUnit = $cost.preCostPerUnit; postCostPerUnit = $cost.postCostPerUnit; stock = [int]$estimatedStock; reorderTotal = [int]$reorderTotal; plcWeekOffset = if ($forecast.Count -gt 0) { [int]$forecast[-1].offset } else { 0 }; weekly = @($style.weekly | Select-Object -Last 14); trend = @($fullTrend); forecast = @($forecast | Select-Object -First 12); priorSeries = @($built.priorSeries | Select-Object -First 12); similarStyle = if ($similar) { [ordered]@{ styleCode = $similar.style.styleCode; styleName = $similar.style.styleName; score = $similar.score; source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $similar.style.normalRate; totalQty = $similar.style.totalQty; totalNormalQty = $similar.style.totalNormalQty; orderAmount = $similar.style.orderAmountFromWeekly } } else { $null }; colors = @($colorRows); skuPlan = @($skuPlan) }
 }
 
 $recommendedStyleSet = @{}; foreach ($row in $summaryRows) { $recommendedStyleSet[$row.styleCode] = 1 }
 $latestLabel = if ($styles2026.Count -gt 0) { (@($styles2026[0].weekly | Select-Object -Last 1)[0].label) } else { "" }
-$payload = [ordered]@{ generatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); latestWeek = $latestLabel; latestWeekLabel = $latestLabel; sourceDir = $sourceDir; sourceWorkbook = $weeklyWorkbookPath; skuWorkbook = $skuWorkbookPath; progressMap = $progressMapPath; stats = [ordered]@{ productionStyles = $styles2026.Count; joinedStyles = $styles2026.Count; priorStyles = $styles2025.Count; progressMappedStyles = $progressMap.Count; skuStyles = $skuByStyle.Count; recommendedStyles = $recommendedStyleSet.Count; recommendationRows = $recommendations.Count }; recommendations = @($recommendations | Sort-Object weekOffset, @{ Expression = "neededQty"; Descending = $true }); summary = @($summaryRows | Sort-Object @{ Expression = "orderAmount"; Descending = $true }); styles = @($stylePayload) }
+$payload = [ordered]@{ generatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); latestWeek = $latestLabel; latestWeekLabel = $latestLabel; sourceDir = $sourceDir; sourceWorkbook = $weeklyWorkbookPath; skuWorkbook = $skuWorkbookPath; costWorkbook = $costWorkbookPath; progressMap = $progressMapPath; stats = [ordered]@{ productionStyles = $styles2026.Count; joinedStyles = $styles2026.Count; priorStyles = $styles2025.Count; progressMappedStyles = $progressMap.Count; skuStyles = $skuByStyle.Count; costStyles = $costByStyle.Count; recommendedStyles = $recommendedStyleSet.Count; recommendationRows = $recommendations.Count }; recommendations = @($recommendations | Sort-Object weekOffset, @{ Expression = "neededQty"; Descending = $true }); summary = @($summaryRows | Sort-Object @{ Expression = "orderAmount"; Descending = $true }); styles = @($stylePayload) }
 
 $json = $payload | ConvertTo-Json -Depth 14 -Compress
 Set-Content -LiteralPath $outPath -Value "window.REORDER_DATA = $json;" -Encoding UTF8

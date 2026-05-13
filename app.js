@@ -224,7 +224,7 @@ function renderDetailTable() {
     const targetQty = Math.max(five + Number(style.totalQty || 0), Math.round(Number(style.inboundQty || 0) * 0.72));
     const achievement = targetQty ? Math.round((Number(style.totalQty || 0) / targetQty) * 1000) / 10 : 0;
     const weekRate = style.inboundQty ? Math.round((latestWeeklyQty(style) / style.inboundQty) * 1000) / 10 : 0;
-    const costRate = style.price ? Math.round((1 - Number(style.normalRate || 0) * 0.42) * 1000) / 10 : 0;
+    const costRate = Number(style.costRate || 0);
     const tr = document.createElement("tr");
     tr.className = state.selectedStyle === row.styleCode ? "selected" : "";
     tr.innerHTML = `
@@ -239,7 +239,7 @@ function renderDetailTable() {
       <td class="num">${achievement}%</td>
       <td class="num">${weekRate}%</td>
       <td class="num badge">${formatPlain(latestWeeklyQty(style))}</td>
-      <td class="num">${costRate}%</td>
+      <td class="num">${costRate ? `${costRate}%` : "-"}</td>
       <td><span class="period-pill" title="${safe(styleSalesPeriod(style))}">${activeWeekCount(style)}</span></td>
       <td class="center-cell">${reorderRound(style)}</td>
       <td class="num badge"><span class="qty-pill">${formatPlain(w0)}</span></td>

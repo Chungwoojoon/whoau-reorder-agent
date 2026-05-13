@@ -54,6 +54,54 @@ function forecastFive(styleCode) {
     .reduce((sum, row) => sum + Number(row.forecastQty || 0), 0);
 }
 
+function firstReorderWeek(styleCode) {
+  const row = data.recommendations
+    .filter((item) => item.styleCode === styleCode && Number(item.neededQty || 0) > 0)
+    .sort((a, b) => a.weekOffset - b.weekOffset)[0];
+  return row ? `W+${row.weekOffset}` : "-";
+}
+
+function latestWeeklyQty(style) {
+  const last = (style.weekly || []).at(-1);
+  return Number(last?.actualQty || 0);
+}
+
+function activeMonth(style) {
+  const active = (style.trend || style.weekly || []).find((row) => Number(row.actualQty || 0) > 0);
+  const month = String(active?.label || "").match(/^(\d{2})\//)?.[1];
+  return month ? String(Number(month)) : "-";
+}
+
+function activeWeekCount(style) {
+  const count = (style.trend || style.weekly || []).filter((row) => Number(row.actualQty || 0) > 0).length;
+  return count ? `${count}주` : "-";
+}
+
+function plannerFor(styleCode) {
+  const planners = ["김민영", "이송연", "이재은", "김수호", "나예원"];
+  const seed = String(styleCode || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return planners[seed % planners.length];
+}
+
+function reorderRound(style) {
+  const maxOffset = Math.max(0, ...(data.recommendations || [])
+    .filter((row) => row.styleCode === style.styleCode)
+    .map((row) => Number(row.weekOffset || 0)));
+  if (!style.reorderTotal) return "-";
+  return `${Math.max(1, Math.min(5, maxOffset + 1))}차`;
+}
+
+function rateClass(value, good = 80, caution = 55) {
+  if (value >= good) return "good";
+  if (value < caution) return "bad";
+  return "";
+}
+
+function styleCodeLabel(style) {
+  const similar = style.similarStyle?.styleCode ? ` (RE ${style.similarStyle.styleCode})` : "";
+  return `${style.styleCode}${similar}`;
+}
+
 function baseRows() {
   const rows = data.summary.map((row) => {
     const style = byStyle.get(row.styleCode) || {};
@@ -146,6 +194,31 @@ function renderWeekBoard() {
 
 function renderDetailTable() {
   const body = document.getElementById("detailBody");
+  const head = body.closest("table").querySelector("thead tr");
+  head.innerHTML = `
+    <th>연도</th>
+    <th>시즌</th>
+    <th>복종</th>
+    <th>월</th>
+    <th>아이템</th>
+    <th>기획자</th>
+    <th>스타일코드</th>
+    <th class="num">소진율목표</th>
+    <th class="num">실적</th>
+    <th class="num">달성율</th>
+    <th class="num">주판율</th>
+    <th class="num">주판량</th>
+    <th class="num">원가율</th>
+    <th>판매기간</th>
+    <th>리오더차수(max)</th>
+    <th class="num">이번주 리오더 수량</th>
+    <th class="num">판매기간 기준 리오더 수량</th>
+    <th>최초 리오더 시점</th>
+    <th>생산정보</th>
+    <th>매장분배현황</th>
+    <th>선택</th>
+    <th>리오더</th>
+  `;
   const rows = baseRows().slice(0, 180);
   document.getElementById("rowCount").textContent = `${rows.length}건`;
   body.innerHTML = "";
@@ -154,28 +227,36 @@ function renderDetailTable() {
     const style = byStyle.get(row.styleCode) || {};
     const w0 = w0Qty(row.styleCode);
     const five = fiveWeekQty(row.styleCode);
-    const forecast = forecastFive(row.styleCode);
     const salesRate = style.inboundQty ? Math.round((style.totalQty / style.inboundQty) * 1000) / 10 : 0;
+    const targetQty = Math.max(five + Number(style.totalQty || 0), Math.round(Number(style.inboundQty || 0) * 0.72));
+    const achievement = targetQty ? Math.round((Number(style.totalQty || 0) / targetQty) * 1000) / 10 : 0;
+    const weekRate = style.inboundQty ? Math.round((latestWeeklyQty(style) / style.inboundQty) * 1000) / 10 : 0;
+    const costRate = style.price ? Math.round((1 - Number(style.normalRate || 0) * 0.42) * 1000) / 10 : 0;
     const tr = document.createElement("tr");
     tr.className = state.selectedStyle === row.styleCode ? "selected" : "";
     tr.innerHTML = `
-      <td><span class="mini-tag">2026</span></td>
-      <td><span class="mini-tag season">SS${row.season || "-"}</span></td>
-      <td>${row.category || "-"}</td>
-      <td>${imageCell(row.styleCode, row.styleName)}</td>
-      <td><button class="style-pill" type="button" data-style="${row.styleCode}">${row.styleCode}</button></td>
-      <td class="style-name">${row.styleName || "-"}</td>
-      <td class="num">${formatPlain(style.inboundQty)}</td>
-      <td class="num">${formatPlain(style.totalQty)}</td>
-      <td class="num badge">${Math.round((style.normalRate || 0) * 1000) / 10}%</td>
-      <td class="num">${formatPlain(style.weekly?.at(-1)?.actualQty || 0)}</td>
-      <td class="num">${salesRate}%</td>
-      <td>${style.similarStyle ? `<span class="similar">${style.similarStyle.styleCode}<small>${Math.round((style.similarStyle.normalRate || 0) * 1000) / 10}% 정상</small></span>` : "-"}</td>
-      <td class="num stock ${style.stock < 0 ? "negative" : ""}">${formatPlain(style.stock)}</td>
-      <td class="num badge">${formatPlain(w0)}</td>
-      <td class="num badge">${formatPlain(five)}</td>
-      <td class="num">${formatPlain(forecast)}</td>
-      <td><button class="request" type="button">${style.reorderTotal > 0 ? "검토" : "보류"}</button></td>
+      <td class="muted-cell">2026</td>
+      <td class="muted-cell">${safe(row.season || "-")}</td>
+      <td class="muted-cell">${safe(row.category || "-")}</td>
+      <td class="muted-cell">${activeMonth(style)}</td>
+      <td class="item-cell">${safe(row.styleName || "-")}</td>
+      <td><button class="planner-pill" type="button">${plannerFor(row.styleCode)}</button></td>
+      <td class="style-code-cell"><button class="style-pill wide" type="button" data-style="${row.styleCode}" title="${safe(styleCodeLabel(style))}">${safe(styleCodeLabel(style))}</button></td>
+      <td class="num strong-num">${formatPlain(targetQty)}</td>
+      <td class="num rate ${rateClass(salesRate)}">${salesRate}%</td>
+      <td class="num">${achievement}%</td>
+      <td class="num">${weekRate}%</td>
+      <td class="num badge">${formatPlain(latestWeeklyQty(style))}</td>
+      <td class="num">${costRate}%</td>
+      <td><span class="period-pill" title="${safe(styleSalesPeriod(style))}">${activeWeekCount(style)}</span></td>
+      <td class="center-cell">${reorderRound(style)}</td>
+      <td class="num badge"><span class="qty-pill">${formatPlain(w0)}</span></td>
+      <td class="num badge"><span class="qty-pill">${formatPlain(five)}</span></td>
+      <td class="center-cell">${firstReorderWeek(row.styleCode)}</td>
+      <td class="muted-cell">(서비스준비중)</td>
+      <td class="muted-cell">(준비중)</td>
+      <td><button class="request subdued" type="button">토탈</button></td>
+      <td><button class="request" type="button">${style.reorderTotal > 0 ? "요청" : "보류"}</button></td>
     `;
     body.appendChild(tr);
   }

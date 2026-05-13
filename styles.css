@@ -372,17 +372,17 @@ input[type="search"] {
 
 table {
   width: 100%;
-  min-width: 1500px;
+  min-width: 2180px;
   border-collapse: collapse;
 }
 
 th,
 td {
-  padding: 10px 11px;
+  padding: 9px 10px;
   border-bottom: 1px solid rgba(37, 70, 95, 0.82);
   text-align: left;
   vertical-align: middle;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 th {
@@ -390,9 +390,10 @@ th {
   top: 0;
   z-index: 2;
   color: #bdd4e9;
-  background: #091725;
+  background: #111827;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1.25;
 }
 
 td.num,
@@ -449,10 +450,106 @@ tbody tr.selected {
   font-size: 11px;
 }
 
+.style-code-cell {
+  width: 250px;
+  max-width: 250px;
+}
+
+.style-pill.wide {
+  display: inline-flex;
+  align-items: center;
+  max-width: 230px;
+  min-width: 210px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.planner-pill {
+  min-height: 28px;
+  padding: 0 12px;
+  border-color: #334155;
+  border-radius: 999px;
+  color: #dbe7f3;
+  background: #141c2b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.planner-pill::after {
+  content: "⌄";
+  margin-left: 5px;
+  color: var(--muted);
+}
+
+.item-cell {
+  width: 210px;
+  max-width: 210px;
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+.muted-cell,
+.center-cell {
+  color: #aab9c8;
+  white-space: nowrap;
+}
+
+.center-cell {
+  text-align: center;
+}
+
+.strong-num {
+  color: #dbeafe;
+  font-weight: 900;
+}
+
+.rate {
+  font-weight: 900;
+}
+
+.rate.good {
+  color: var(--green);
+}
+
+.rate.bad {
+  color: var(--danger);
+}
+
+.qty-pill,
+.period-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 27px;
+  padding: 0 13px;
+  border: 1px solid #0b6d89;
+  border-radius: 999px;
+  color: var(--cyan);
+  background: rgba(0, 183, 232, 0.1);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.period-pill {
+  min-width: 56px;
+  padding: 0 11px;
+}
+
 .request {
   min-width: 54px;
   color: var(--ink);
   background: transparent;
+}
+
+.request.subdued {
+  min-width: 46px;
+  border-color: #35465d;
+  color: #c4d0df;
+  background: #151c2b;
 }
 
 .mini-tag {

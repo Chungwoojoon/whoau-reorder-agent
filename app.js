@@ -351,15 +351,17 @@ function buildSkuTrend(style, sku) {
   const skuOrderQty = estimatedSkuOrderQty(sku);
   const totalOrderQty = Number(style.orderQty || style.inboundQty || 0) || (style.skuPlan || []).reduce((sum, row) => sum + estimatedSkuOrderQty(row), 0) || 1;
   const orderShare = skuOrderQty / totalOrderQty;
+  const targetTotal = Math.round(styleTargetQty(style) * orderShare);
+  const trendTargetTotal = Math.max(1, trend.reduce((sum, row) => sum + Number(row.targetQty || 0), 0));
   let actualCum = 0;
   let targetCum = 0;
   return trend.map((row) => {
     actualCum += (Number(row.actualQty || 0) / actualTotal) * skuSales;
-    targetCum += Number(row.targetQty || 0) * orderShare;
+    targetCum += Number(row.targetQty || 0);
     return {
       label: row.label,
       actualQty: Math.round(actualCum),
-      targetQty: Math.round(targetCum),
+      targetQty: Math.round(targetTotal * (targetCum / trendTargetTotal)),
     };
   });
 }

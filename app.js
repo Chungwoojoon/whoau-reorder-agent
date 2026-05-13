@@ -14,7 +14,13 @@ const weeks = [0, 1, 2, 3, 4];
 
 const formatQty = (value) => `${Number(value || 0).toLocaleString("ko-KR")}pcs`;
 const formatPlain = (value) => Number(value || 0).toLocaleString("ko-KR");
+const formatMoney = (value) => {
+  const amount = Number(value || 0);
+  if (Math.abs(amount) >= 1000000) return `${Math.round(amount / 1000000).toLocaleString("ko-KR")}백만원`;
+  return `${amount.toLocaleString("ko-KR")}원`;
+};
 const normalize = (value) => String(value || "").toLowerCase();
+const safe = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 
 function imageCell(styleCode, styleName) {
   const image = imageMap[styleCode];
@@ -132,6 +138,7 @@ function renderWeekBoard() {
   board.querySelectorAll(".week-item").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedStyle = button.dataset.style;
+      openStyleModal(button.dataset.style);
       renderDetailTable();
     });
   });
@@ -171,17 +178,204 @@ function renderDetailTable() {
       <td><button class="request" type="button">${style.reorderTotal > 0 ? "검토" : "보류"}</button></td>
     `;
     body.appendChild(tr);
-    if (state.selectedStyle === row.styleCode) {
-      body.appendChild(createChartRow(style));
-    }
   }
 
   body.querySelectorAll(".style-pill").forEach((button) => {
     button.addEventListener("click", () => {
-      state.selectedStyle = state.selectedStyle === button.dataset.style ? null : button.dataset.style;
+      state.selectedStyle = button.dataset.style;
+      openStyleModal(button.dataset.style);
       renderDetailTable();
     });
   });
+}
+
+function getStyleImage(styleCode, styleName) {
+  const image = imageMap[styleCode];
+  if (!image?.imageUrl) {
+    return `<div class="modal-image-empty">스타일 이미지 영역</div>`;
+  }
+  const imageTag = `<img src="${image.imageUrl}" alt="${safe(styleName || styleCode)}" referrerpolicy="no-referrer" />`;
+  return image.productUrl
+    ? `<a href="${image.productUrl}" target="_blank" rel="noreferrer">${imageTag}</a>`
+    : imageTag;
+}
+
+function styleSalesPeriod(style) {
+  const active = (style.trend || style.weekly || []).filter((row) => Number(row.actualQty || 0) > 0);
+  if (!active.length) return "-";
+  return active.length === 1 ? active[0].label : `${active[0].label}~${active[active.length - 1].label}`;
+}
+
+function stylePeakLabel(style) {
+  const points = (style.trend || [])
+    .map((row) => ({ label: row.label, qty: Math.max(Number(row.actualQty || 0), Number(row.targetQty || 0), Number(row.predictedQty || 0)) }))
+    .filter((row) => row.qty > 0)
+    .sort((a, b) => b.qty - a.qty);
+  return points[0] ? `${points[0].label} / ${formatQty(points[0].qty)}` : "-";
+}
+
+function modalSkuRows(style) {
+  const rows = (style.skuPlan || []).filter((row) => Number(row.recommendedQty || 0) > 0);
+  const totalSkuQty = rows.reduce((sum, row) => sum + Number(row.recommendedQty || 0), 0);
+  const thisWeekTotal = w0Qty(style.styleCode);
+  return rows
+    .sort((a, b) => Number(b.recommendedQty || 0) - Number(a.recommendedQty || 0))
+    .slice(0, 42)
+    .map((row) => {
+      const share = totalSkuQty > 0 ? Number(row.recommendedQty || 0) / totalSkuQty : 0;
+      return {
+        color: row.colorName ? `${row.colorCode} ${row.colorName}` : row.colorCode,
+        size: row.size,
+        thisWeek: Math.round(thisWeekTotal * share),
+        fourWeeks: Number(row.recommendedQty || 0),
+      };
+    });
+}
+
+function buildModalSkuTable(style) {
+  const rows = modalSkuRows(style);
+  if (!rows.length) {
+    return `<div class="modal-empty">컬러/사이즈별 소진 데이터가 부족해서 세부 배분을 만들지 못했습니다.</div>`;
+  }
+  return `
+    <div class="modal-table-scroll">
+      <table class="modal-sku-table">
+        <thead>
+          <tr><th>컬러</th><th>사이즈</th><th class="num">이번주</th><th class="num">4주 누계</th></tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${safe(row.color)}</td>
+              <td>${safe(row.size)}</td>
+              <td class="num">${formatPlain(row.thisWeek)}</td>
+              <td class="num">${formatPlain(row.fourWeeks)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function seriesPath(points) {
+  return points.length ? points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ") : "";
+}
+
+function buildModalTrendChart(style) {
+  const trend = (style.trend?.length ? style.trend : [
+    ...(style.weekly || []).map((row) => ({ label: row.label, actualQty: row.actualQty, targetQty: 0, predictedQty: 0 })),
+    ...(style.forecast || []).map((row) => ({ label: row.label, actualQty: 0, targetQty: row.targetQty, predictedQty: row.priorSimilarQty || 0 })),
+  ]).filter((row) => Math.max(Number(row.actualQty || 0), Number(row.targetQty || 0), Number(row.predictedQty || 0)) > 0 || row.label === "현재");
+
+  const width = 820;
+  const height = 280;
+  const pad = { top: 18, right: 28, bottom: 42, left: 54 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const maxValue = Math.max(1, ...trend.flatMap((row) => [row.actualQty || 0, row.targetQty || 0, row.predictedQty || 0]));
+  const xStep = trend.length > 1 ? innerW / (trend.length - 1) : innerW;
+  const y = (value) => pad.top + innerH - (Number(value || 0) / maxValue) * innerH;
+  const pointFor = (key) => trend.map((row, index) => Number(row[key] || 0) > 0 ? {
+    x: pad.left + index * xStep,
+    y: y(row[key]),
+    value: row[key],
+    label: row.label,
+  } : null).filter(Boolean);
+  const actual = pointFor("actualQty");
+  const target = pointFor("targetQty");
+  const predicted = pointFor("predictedQty");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const gy = pad.top + innerH - ratio * innerH;
+    return `<line class="grid-line" x1="${pad.left}" y1="${gy}" x2="${width - pad.right}" y2="${gy}"></line><text class="chart-label" x="8" y="${gy + 4}">${formatPlain(Math.round(maxValue * ratio))}</text>`;
+  }).join("");
+  const labels = trend.map((row, index) => {
+    if (index % Math.ceil(Math.max(1, trend.length / 8)) !== 0 && index !== trend.length - 1) return "";
+    return `<text class="chart-label" x="${pad.left + index * xStep}" y="${height - 13}" text-anchor="middle">${safe(row.label)}</text>`;
+  }).join("");
+
+  return `
+    <div class="modal-chart">
+      <div class="modal-chart-head">
+        <strong>판매 추이</strong>
+        <div class="legend modal-legend"><span>실판매량</span><span class="target">목표판매량</span><span class="predicted">예측판매량</span></div>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${safe(style.styleCode)} 판매 추이">
+        ${grid}
+        <line class="axis" x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}"></line>
+        <line class="axis" x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}"></line>
+        <path class="actual-line" d="${seriesPath(actual)}"></path>
+        <path class="target-line" d="${seriesPath(target)}"></path>
+        <path class="predicted-line" d="${seriesPath(predicted)}"></path>
+        ${actual.map((point) => `<circle class="dot-actual" cx="${point.x}" cy="${point.y}" r="4"><title>${safe(point.label)} ${formatPlain(point.value)}</title></circle>`).join("")}
+        ${target.map((point) => `<circle class="dot-target" cx="${point.x}" cy="${point.y}" r="4"><title>${safe(point.label)} ${formatPlain(point.value)}</title></circle>`).join("")}
+        ${predicted.map((point) => `<circle class="dot-predicted" cx="${point.x}" cy="${point.y}" r="4"><title>${safe(point.label)} ${formatPlain(point.value)}</title></circle>`).join("")}
+        ${labels}
+      </svg>
+    </div>
+  `;
+}
+
+function openStyleModal(styleCode) {
+  const style = byStyle.get(styleCode);
+  if (!style) return;
+  const modal = document.getElementById("styleModal");
+  const body = document.getElementById("modalBody");
+  const title = document.getElementById("modalTitle");
+  const totalOrderQty = Number(style.orderQty || style.inboundQty || 0);
+  const unreceived = Math.max(0, totalOrderQty - Number(style.inboundQty || 0));
+  const sellThrough = style.inboundQty ? Math.round((style.totalQty / style.inboundQty) * 1000) / 10 : 0;
+  const averagePrice = style.totalQty ? Math.round(Number(style.totalSalesAmount || 0) / Math.max(1, Number(style.totalQty || 1))) : Number(style.price || 0);
+  const similar = style.similarStyle ? ` (RE ${safe(style.similarStyle.styleCode)})` : "";
+  title.textContent = `${style.styleCode}${similar} — ${style.styleName || style.productName || ""}`;
+  body.innerHTML = `
+    <div class="modal-layout">
+      <div class="modal-left">
+        <div class="modal-image">${getStyleImage(style.styleCode, style.styleName)}</div>
+        <div class="modal-info-grid">
+          <div>
+            <h3>가격 정보</h3>
+            <dl>
+              <dt>정가</dt><dd>${formatMoney(style.price)}</dd>
+              <dt>평균판매가</dt><dd>${formatMoney(averagePrice)}</dd>
+              <dt>정판율</dt><dd>${Math.round(Number(style.normalRate || 0) * 1000) / 10}%</dd>
+            </dl>
+          </div>
+          <div>
+            <h3>판매 정보</h3>
+            <dl>
+              <dt>판매시기</dt><dd>${safe(styleSalesPeriod(style))}</dd>
+              <dt>예상피크</dt><dd>${safe(stylePeakLabel(style))}</dd>
+              <dt>기판매량</dt><dd>${formatQty(style.totalQty)}</dd>
+              <dt>달성률</dt><dd>${sellThrough}%</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <div class="modal-right">
+        <div class="modal-stat-block">
+          <h3>발주 정보</h3>
+          <div class="modal-stats">
+            <div><span>누적 발주량</span><strong>${formatQty(totalOrderQty)}</strong></div>
+            <div><span>기입고량</span><strong>${formatQty(style.inboundQty)}</strong></div>
+            <div><span>미입고량</span><strong>${formatQty(unreceived)}</strong></div>
+          </div>
+        </div>
+        <div class="modal-stat-block">
+          <h3>컬러별 / 사이즈별 리오더 수량</h3>
+          ${buildModalSkuTable(style)}
+        </div>
+        ${buildModalTrendChart(style)}
+      </div>
+    </div>
+  `;
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeStyleModal() {
+  document.getElementById("styleModal").hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function pointsToPath(points) {
@@ -310,6 +504,14 @@ function bindEvents() {
   document.getElementById("downloadCsv").addEventListener("click", () => alert("다음 단계에서 CSV 다운로드를 연결할 수 있습니다."));
   document.getElementById("addStyle").addEventListener("click", () => alert("다음 단계에서 수동 스타일 추가를 연결할 수 있습니다."));
 }
+
+document.getElementById("modalClose").addEventListener("click", closeStyleModal);
+document.getElementById("styleModal").addEventListener("click", (event) => {
+  if (event.target.id === "styleModal") closeStyleModal();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.getElementById("styleModal").hidden) closeStyleModal();
+});
 
 renderMeta();
 renderFilters();

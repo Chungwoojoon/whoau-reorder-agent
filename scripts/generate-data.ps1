@@ -350,7 +350,8 @@ function Build-Forecast($style, $similar) {
       $priorIndex = $priorStart + $lifeIndex + $i + 1
       if ($priorIndex -lt $prior.weekly.Count) {
         $priorWeek = $prior.weekly[$priorIndex]
-        $priorTarget = (0.35 * $priorWeek.actualQty + 0.65 * $priorWeek.normalQty) * (0.55 + 0.45 * $priorQuality)
+        $orderScale = if ($prior.orderAmountFromWeekly -gt 0) { [Math]::Max(0.35, [Math]::Min(2.5, $style.orderAmountFromWeekly / $prior.orderAmountFromWeekly)) } else { 1.0 }
+        $priorTarget = (0.35 * $priorWeek.actualQty + 0.65 * $priorWeek.normalQty) * (0.55 + 0.45 * $priorQuality) * $orderScale
       }
       $priorSeries += [ordered]@{ offset = $i + 1; label = "전년+" + ($i + 1); actualQty = [math]::Round($priorTarget) }
     }
@@ -362,6 +363,55 @@ function Build-Forecast($style, $similar) {
     if ($target -lt 1 -and $i -gt 4) { break }
   }
   return @{ forecast = $forecast; priorSeries = $priorSeries }
+}
+
+function Build-FullTrend($style, $similar, $forecast) {
+  $actual = @()
+  $start = FirstActiveIndex $style.weekly
+  $prior = if ($similar) { $similar.style } else { $null }
+  $priorStart = if ($prior) { FirstActiveIndex $prior.weekly } else { 0 }
+  $orderScale = if ($prior -and $prior.orderAmountFromWeekly -gt 0) { [Math]::Max(0.35, [Math]::Min(2.5, $style.orderAmountFromWeekly / $prior.orderAmountFromWeekly)) } else { 1.0 }
+  for ($i = $start; $i -lt $style.weekly.Count; $i++) {
+    $w = $style.weekly[$i]
+    $lifeIndex = [Math]::Max(0, $i - $start)
+    $predictedQty = 0
+    if ($prior) {
+      $priorIndex = $priorStart + $lifeIndex
+      if ($priorIndex -lt $prior.weekly.Count) {
+        $pw = $prior.weekly[$priorIndex]
+        $predictedQty = [math]::Round((0.4 * $pw.actualQty + 0.6 * $pw.normalQty) * $orderScale)
+      }
+    }
+    $targetQty = if ($w.normalQty -gt 0) { $w.normalQty } elseif ($predictedQty -gt 0) { $predictedQty } else { $w.actualQty }
+    $actual += [ordered]@{
+      index = $actual.Count
+      label = $w.label
+      actualQty = $w.actualQty
+      targetQty = [math]::Round($targetQty)
+      predictedQty = [math]::Round($predictedQty)
+    }
+  }
+  $lastActual = if ($actual.Count -gt 0) { $actual[-1].actualQty } else { 0 }
+  $currentLife = [Math]::Max(0, $style.weekly.Count - 1 - $start)
+
+  for ($i = 0; $i -lt $forecast.Count; $i++) {
+    $priorPred = 0
+    if ($prior) {
+      $priorIndex = $priorStart + $currentLife + $i + 1
+      if ($priorIndex -lt $prior.weekly.Count) {
+        $pw = $prior.weekly[$priorIndex]
+        $priorPred = [math]::Round((0.4 * $pw.actualQty + 0.6 * $pw.normalQty) * $orderScale)
+      }
+    }
+    $actual += [ordered]@{
+      index = $actual.Count
+      label = $forecast[$i].label
+      actualQty = 0
+      targetQty = $forecast[$i].targetQty
+      predictedQty = $priorPred
+    }
+  }
+  return $actual
 }
 
 $metadataByStyle = @{}
@@ -412,6 +462,7 @@ foreach ($style in $styles2026) {
   if (-not $similar) { $similar = Find-SimilarStyle $style $styles2025 }
   $built = Build-Forecast $style $similar
   $forecast = @($built.forecast)
+  $fullTrend = @(Build-FullTrend $style $similar $forecast)
   $plcNeed = 0.0; foreach ($point in $forecast) { $plcNeed += $point.targetQty }
   $production = if ($productionByStyle.ContainsKey($style.styleCode)) { $productionByStyle[$style.styleCode] } else { [ordered]@{ inboundQty = 0.0; orderQty = 0.0; colors = @{} } }
   $xlsxOrderQty = if ($style.price -gt 0) { [math]::Round($style.orderAmountFromWeekly / $style.price) } else { 0 }
@@ -445,7 +496,7 @@ foreach ($style in $styles2026) {
     $lastWeek = @($style.weekly | Select-Object -Last 1)[0]
     $summaryRows += [ordered]@{ season = $meta.season; category = $meta.categoryMid; styleCode = $style.styleCode; styleName = $style.styleName; orderAmount = [math]::Round($reorderTotal * $style.price); inboundAmount = [math]::Round($production.inboundQty * $style.price); weekSalesAmount = [math]::Round($lastWeek.actualQty * $style.price); cumulativeSalesAmount = [math]::Round($style.totalSalesAmount); regularSalesAmount = [math]::Round($style.totalNormalAmount); reorderTotal = [int]$reorderTotal; similarStyleCode = if ($similar) { $similar.style.styleCode } else { "" }; similarStyleName = if ($similar) { $similar.style.styleName } else { "" }; similarScore = if ($similar) { $similar.score } else { 0 }; similarSource = if ($similar -and $similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $style.normalRate }
   }
-  $stylePayload += [ordered]@{ styleCode = $style.styleCode; styleName = $style.styleName; productName = $style.styleName; season = $meta.season; categoryLarge = $meta.categoryLarge; categoryMid = $meta.categoryMid; categorySmall = $meta.categorySmall; price = [int]$style.price; inboundQty = [math]::Round($production.inboundQty); orderQty = [math]::Round($production.orderQty); totalQty = [math]::Round($style.totalQty); totalNormalQty = [math]::Round($style.totalNormalQty); normalRate = $style.normalRate; stock = [int]$estimatedStock; reorderTotal = [int]$reorderTotal; plcWeekOffset = if ($forecast.Count -gt 0) { [int]$forecast[-1].offset } else { 0 }; weekly = @($style.weekly | Select-Object -Last 14); forecast = @($forecast | Select-Object -First 12); priorSeries = @($built.priorSeries | Select-Object -First 12); similarStyle = if ($similar) { [ordered]@{ styleCode = $similar.style.styleCode; styleName = $similar.style.styleName; score = $similar.score; source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $similar.style.normalRate; totalQty = $similar.style.totalQty; totalNormalQty = $similar.style.totalNormalQty } } else { $null }; colors = @($colorRows); skuPlan = @($skuPlan) }
+  $stylePayload += [ordered]@{ styleCode = $style.styleCode; styleName = $style.styleName; productName = $style.styleName; season = $meta.season; categoryLarge = $meta.categoryLarge; categoryMid = $meta.categoryMid; categorySmall = $meta.categorySmall; price = [int]$style.price; inboundQty = [math]::Round($production.inboundQty); orderQty = [math]::Round($production.orderQty); orderAmount = [math]::Round($style.orderAmountFromWeekly); totalQty = [math]::Round($style.totalQty); totalNormalQty = [math]::Round($style.totalNormalQty); totalSalesAmount = [math]::Round($style.totalSalesAmount); totalNormalAmount = [math]::Round($style.totalNormalAmount); normalRate = $style.normalRate; stock = [int]$estimatedStock; reorderTotal = [int]$reorderTotal; plcWeekOffset = if ($forecast.Count -gt 0) { [int]$forecast[-1].offset } else { 0 }; weekly = @($style.weekly | Select-Object -Last 14); trend = @($fullTrend); forecast = @($forecast | Select-Object -First 12); priorSeries = @($built.priorSeries | Select-Object -First 12); similarStyle = if ($similar) { [ordered]@{ styleCode = $similar.style.styleCode; styleName = $similar.style.styleName; score = $similar.score; source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $similar.style.normalRate; totalQty = $similar.style.totalQty; totalNormalQty = $similar.style.totalNormalQty; orderAmount = $similar.style.orderAmountFromWeekly } } else { $null }; colors = @($colorRows); skuPlan = @($skuPlan) }
 }
 
 $recommendedStyleSet = @{}; foreach ($row in $summaryRows) { $recommendedStyleSet[$row.styleCode] = 1 }

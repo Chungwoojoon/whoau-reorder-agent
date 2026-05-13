@@ -362,6 +362,7 @@ function buildSkuTrend(style, sku) {
       label: row.label,
       actualQty: Math.round(actualCum),
       targetQty: Math.round(targetTotal * (targetCum / trendTargetTotal)),
+      isActualPeriod: Number(row.actualQty || 0) > 0,
     };
   });
 }
@@ -421,7 +422,8 @@ function openSkuDetail(styleCode, skuIndex) {
   const points = buildSkuTrend(style, sku);
   const skuOrderQty = estimatedSkuOrderQty(sku);
   const totalOrderQty = Number(style.orderQty || style.inboundQty || 0) || 1;
-  const targetTotal = Math.round(styleTargetQty(style) * (skuOrderQty / totalOrderQty));
+  const finalTargetTotal = Math.round(styleTargetQty(style) * (skuOrderQty / totalOrderQty));
+  const currentTarget = [...points].reverse().find((point) => point.isActualPeriod)?.targetQty || 0;
   const modal = document.createElement("div");
   modal.className = "sku-detail-backdrop";
   modal.innerHTML = `
@@ -433,7 +435,8 @@ function openSkuDetail(styleCode, skuIndex) {
       <div class="sku-detail-body">
         <div class="modal-stats sku-detail-stats">
           <div><span>현재까지 판매량</span><strong>${formatQty(sku.recentSales)}</strong></div>
-          <div><span>목표 판매량</span><strong>${formatQty(targetTotal)}</strong></div>
+          <div><span>현 시점 목표 판매량</span><strong>${formatQty(currentTarget)}</strong></div>
+          <div><span>최종 전체 목표 판매량</span><strong>${formatQty(finalTargetTotal)}</strong></div>
           <div><span>SKU 발주 비중</span><strong>${Math.round((skuOrderQty / totalOrderQty) * 1000) / 10}%</strong></div>
         </div>
         ${buildSkuChartSvg(points, "컬러/사이즈 누적 판매량")}

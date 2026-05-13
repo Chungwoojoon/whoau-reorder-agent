@@ -4,3 +4,5 @@ Thumbs.db
 *.log
 assets/*.png
 !assets/.gitkeep
+
+.vercel

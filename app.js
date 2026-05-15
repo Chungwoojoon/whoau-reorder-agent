@@ -126,10 +126,28 @@ function discountApplies(event, row) {
 
 function discountImpactFor(row) {
   const active = state.discounts.filter((event) => discountApplies(event, row));
-  const rawImpact = active.reduce((sum, event) => sum + (Number(event.discountRate || 0) / 100) * 0.55, 0);
+  const style = byStyle.get(row.styleCode) || {};
+  const costRate = Number(style.costRate || 0);
+  const rawReduction = active.reduce((sum, event) => {
+    const rate = Number(event.discountRate || 0);
+    let reduction = 0;
+    if (rate >= 40) reduction = 0.45;
+    else if (rate >= 30) reduction = 0.32;
+    else if (rate >= 20) reduction = 0.2;
+    else if (rate >= 10) reduction = 0.08;
+    else reduction = (rate / 100) * 0.5;
+
+    if (costRate >= 35) reduction += 0.1;
+    else if (costRate >= 30) reduction += 0.06;
+    else if (costRate >= 25) reduction += 0.03;
+
+    return sum + reduction;
+  }, 0);
+  const cappedReduction = Math.min(0.65, rawReduction);
   return {
     active,
-    factor: 1 + Math.min(0.6, rawImpact),
+    factor: Math.max(0.35, 1 - cappedReduction),
+    reduction: cappedReduction,
   };
 }
 
@@ -143,6 +161,7 @@ function applyDiscountToRecommendation(row) {
     neededQty,
     forecastQty,
     discountFactor: impact.factor,
+    discountReduction: impact.reduction,
     discountCount: impact.active.length,
   };
 }
@@ -290,7 +309,7 @@ function renderWeekBoard() {
             <span>
               <b>${row.styleCode}</b>
               <small>${row.category || "-"} · ${row.subCategory || "-"}</small>
-              ${row.discountCount ? `<small class="discount-mark">할인 ${row.discountCount}건 반영</small>` : ""}
+              ${row.discountCount ? `<small class="discount-mark">할인 감산 ${Math.round((row.discountReduction || 0) * 100)}%</small>` : ""}
             </span>
             <em>${formatQty(row.neededQty)}</em>
           </button>

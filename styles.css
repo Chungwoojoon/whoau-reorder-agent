@@ -1131,6 +1131,18 @@ svg {
   outline: 0;
 }
 
+.discount-sheet select {
+  width: 100%;
+  min-width: 92px;
+  min-height: 26px;
+  padding: 0 24px 0 8px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: rgba(13, 27, 41, 0.55);
+  outline: 0;
+}
+
 .discount-sheet.compact {
   width: min(560px, 100%);
   margin: 0 auto;
@@ -1170,7 +1182,8 @@ svg {
   text-decoration: line-through;
 }
 
-.cancel-discount {
+.cancel-discount,
+.delete-discount {
   min-height: 26px;
   padding: 0 10px;
   border-color: rgba(255, 107, 107, 0.58);
@@ -1178,6 +1191,12 @@ svg {
   background: rgba(255, 107, 107, 0.08);
   font-size: 12px;
   font-weight: 900;
+}
+
+.delete-discount {
+  border-color: rgba(255, 178, 93, 0.62);
+  color: #ffca8a;
+  background: rgba(255, 178, 93, 0.08);
 }
 
 .similar {

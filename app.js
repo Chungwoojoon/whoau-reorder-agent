@@ -698,10 +698,18 @@ function closeStyleModal() {
 }
 
 function discountRowTemplate(index, mode) {
+  const channelSelect = `
+    <select class="discount-channel">
+      <option value="오프라인">오프라인</option>
+      <option value="온라인">온라인</option>
+      <option value="면세">면세</option>
+    </select>
+  `;
   if (mode === "all") {
     return `
       <tr>
         <td class="row-index">${index + 1}</td>
+        <td>${channelSelect}</td>
         <td><input class="discount-period" type="text" placeholder="예: 06/01~06/07 또는 W+2~W+3"></td>
         <td><input class="discount-rate" type="number" min="0" max="90" placeholder="20"></td>
       </tr>
@@ -710,6 +718,7 @@ function discountRowTemplate(index, mode) {
   return `
     <tr>
       <td class="row-index">${index + 1}</td>
+      <td>${channelSelect}</td>
       <td><input class="discount-period" type="text" placeholder="예: 06/01~06/07 또는 W+2"></td>
       <td><input class="discount-style-code" type="text" placeholder="WHRAG2422F"></td>
       <td><input class="discount-price" type="number" min="0" placeholder="29900"></td>
@@ -721,8 +730,8 @@ function discountRowTemplate(index, mode) {
 
 function discountEntryTable(mode, count) {
   const headers = mode === "all"
-    ? `<th></th><th>기간</th><th>할인율</th>`
-    : `<th></th><th>기간</th><th>스타일코드</th><th>가격</th><th>할인가</th><th>할인율</th>`;
+    ? `<th></th><th>채널</th><th>기간</th><th>할인율</th>`
+    : `<th></th><th>채널</th><th>기간</th><th>스타일코드</th><th>가격</th><th>할인가</th><th>할인율</th>`;
   return `
     <div class="discount-sheet-wrap">
       <table class="discount-sheet ${mode === "all" ? "compact" : ""}">
@@ -781,6 +790,7 @@ function openDiscountPlan(mode = "style") {
     const rows = [...modal.querySelectorAll("#discountRows tr")];
     const events = rows.map((tr) => {
       const period = tr.querySelector(".discount-period")?.value.trim();
+      const channel = tr.querySelector(".discount-channel")?.value || "오프라인";
       const styleCode = tr.querySelector(".discount-style-code")?.value.trim().toUpperCase() || "";
       const price = tr.querySelector(".discount-price")?.value.trim() || "";
       const salePrice = tr.querySelector(".discount-sale-price")?.value.trim() || "";
@@ -791,6 +801,7 @@ function openDiscountPlan(mode = "style") {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createdAt: new Date().toISOString(),
         scope: mode,
+        channel,
         period,
         styleCode,
         price: parseNumberInput(price),
@@ -829,24 +840,29 @@ function discountListTable({ cancellable = false } = {}) {
         <thead>
           <tr>
             <th>상태</th>
+            <th>채널</th>
             <th>대상</th>
             <th>기간</th>
             <th>가격</th>
             <th>할인가</th>
             <th>할인율</th>
-            ${cancellable ? "<th>취소</th>" : ""}
+            ${cancellable ? "<th>취소</th><th>삭제</th>" : ""}
           </tr>
         </thead>
         <tbody>
           ${rows.map((event) => `
             <tr class="${event.status === "cancelled" ? "cancelled" : ""}">
               <td>${discountStatusText(event)}</td>
+              <td>${safe(event.channel || "오프라인")}</td>
               <td>${safe(discountScopeText(event))}</td>
               <td>${safe(event.period)}</td>
               <td>${event.price ? formatMoney(event.price) : "-"}</td>
               <td>${event.salePrice ? formatMoney(event.salePrice) : "-"}</td>
               <td>${event.discountRate}%</td>
-              ${cancellable ? `<td>${event.status === "cancelled" ? "-" : `<button class="cancel-discount" type="button" data-id="${event.id}">취소</button>`}</td>` : ""}
+              ${cancellable ? `
+                <td>${event.status === "cancelled" ? "-" : `<button class="cancel-discount" type="button" data-id="${event.id}">취소</button>`}</td>
+                <td>${event.status === "cancelled" ? `<button class="delete-discount" type="button" data-id="${event.id}">삭제</button>` : "-"}</td>
+              ` : ""}
             </tr>
           `).join("")}
         </tbody>
@@ -878,6 +894,15 @@ function openDiscountList({ cancellable = false } = {}) {
   modal.querySelectorAll(".cancel-discount").forEach((button) => {
     button.addEventListener("click", () => {
       state.discounts = state.discounts.map((event) => event.id === button.dataset.id ? { ...event, status: "cancelled" } : event);
+      saveDiscounts();
+      renderAll();
+      close();
+      openDiscountList({ cancellable: true });
+    });
+  });
+  modal.querySelectorAll(".delete-discount").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.discounts = state.discounts.filter((event) => event.id !== button.dataset.id);
       saveDiscounts();
       renderAll();
       close();

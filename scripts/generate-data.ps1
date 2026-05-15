@@ -378,6 +378,7 @@ function Build-Forecast($style, $similar) {
   if ($similar) { $prior = $similar.style; $priorStart = FirstActiveIndex $prior.weekly; $priorQuality = [Math]::Max(0.45, [Math]::Min(1.0, $prior.normalRate)) }
   for ($i = 0; $i -lt 26; $i++) {
     $decayTarget = $recent * [Math]::Pow(0.88, $i) * $currentQuality
+    if ($i -gt 8) { $decayTarget = $decayTarget * [Math]::Pow(0.92, $i - 8) }
     $priorTarget = 0.0
     if ($prior) {
       $priorIndex = $priorStart + $lifeIndex + $i + 1
@@ -388,9 +389,13 @@ function Build-Forecast($style, $similar) {
       }
       $priorSeries += [ordered]@{ offset = $i + 1; label = "전년+" + ($i + 1); actualQty = [math]::Round($priorTarget) }
     }
-    $blendWeight = if ($priorTarget -gt 0) { [Math]::Min(0.5, 0.25 + ($similar.score * 0.25)) } else { 0.0 }
+    $blendWeight = 0.0
+    if ($priorTarget -gt 0) {
+      $source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }
+      $blendWeight = if ($source -eq "progress-board") { 0.72 } else { [Math]::Min(0.65, 0.35 + ($similar.score * 0.30)) }
+      if ($priorTarget -gt $decayTarget) { $blendWeight = [Math]::Min(0.85, $blendWeight + 0.10) }
+    }
     $target = ($decayTarget * (1 - $blendWeight)) + ($priorTarget * $blendWeight)
-    if ($i -gt 8) { $target = $target * [Math]::Pow(0.92, $i - 8) }
     $target = [math]::Round([Math]::Max(0, $target))
     $forecast += [ordered]@{ offset = $i + 1; week = "W+" + ($i + 1); label = "W+" + ($i + 1); targetQty = [int]$target; priorSimilarQty = if ($priorTarget -gt 0) { [math]::Round($priorTarget) } else { 0 } }
     if ($target -lt 1 -and $i -gt 4) { break }

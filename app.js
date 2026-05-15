@@ -61,6 +61,33 @@ function parseDiscountRate(row) {
   return 0;
 }
 
+function syncDiscountRate(row) {
+  const priceInput = row.querySelector(".discount-price");
+  const saleInput = row.querySelector(".discount-sale-price");
+  const rateInput = row.querySelector(".discount-rate");
+  if (!priceInput || !saleInput || !rateInput) return;
+  const price = parseNumberInput(priceInput.value);
+  const salePrice = parseNumberInput(saleInput.value);
+  if (price > 0 && salePrice > 0 && salePrice < price) {
+    rateInput.value = Math.round((1 - salePrice / price) * 1000) / 10;
+  }
+}
+
+function bindDiscountRateInputs(root) {
+  root.querySelectorAll("#discountRows tr").forEach((row) => {
+    const priceInput = row.querySelector(".discount-price");
+    const saleInput = row.querySelector(".discount-sale-price");
+    if (priceInput && !priceInput.dataset.bound) {
+      priceInput.dataset.bound = "true";
+      priceInput.addEventListener("input", () => syncDiscountRate(row));
+    }
+    if (saleInput && !saleInput.dataset.bound) {
+      saleInput.dataset.bound = "true";
+      saleInput.addEventListener("input", () => syncDiscountRate(row));
+    }
+  });
+}
+
 function latestWeekStart() {
   const label = data.latestWeekLabel || "";
   const match = label.match(/(\d{2})\/(\d{2})/);
@@ -747,7 +774,9 @@ function openDiscountPlan(mode = "style") {
   modal.querySelector("#addDiscountRow")?.addEventListener("click", () => {
     const body = modal.querySelector("#discountRows");
     body.insertAdjacentHTML("beforeend", discountRowTemplate(body.children.length, "style"));
+    bindDiscountRateInputs(modal);
   });
+  bindDiscountRateInputs(modal);
   modal.querySelector("#confirmDiscounts").addEventListener("click", () => {
     const rows = [...modal.querySelectorAll("#discountRows tr")];
     const events = rows.map((tr) => {

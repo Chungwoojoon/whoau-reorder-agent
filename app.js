@@ -7,10 +7,13 @@ const state = {
   category: "all",
   week: "all",
   selectedStyle: null,
+  discountMode: "style",
+  discounts: loadDiscounts(),
 };
 
 const byStyle = new Map(data.styles.map((style) => [style.styleCode, style]));
 const weeks = [0, 1, 2, 3, 4];
+const DISCOUNT_KEY = "whoau-discount-events-v1";
 
 const formatQty = (value) => `${Number(value || 0).toLocaleString("ko-KR")}pcs`;
 const formatPlain = (value) => Number(value || 0).toLocaleString("ko-KR");
@@ -22,6 +25,18 @@ const formatMoney = (value) => {
 const normalize = (value) => String(value || "").toLowerCase();
 const safe = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 
+function loadDiscounts() {
+  try {
+    return JSON.parse(localStorage.getItem("whoau-discount-events-v1") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveDiscounts() {
+  localStorage.setItem(DISCOUNT_KEY, JSON.stringify(state.discounts));
+}
+
 function imageCell(styleCode, styleName) {
   const image = imageMap[styleCode];
   if (!image?.imageUrl) return `<span class="thumb-empty">No image</span>`;
@@ -31,21 +46,100 @@ function imageCell(styleCode, styleName) {
     : img;
 }
 
+function parseNumberInput(value) {
+  return Number(String(value || "").replace(/[^0-9.-]/g, "")) || 0;
+}
+
+function parseDiscountRate(row) {
+  const explicitRate = parseNumberInput(row.discountRate);
+  if (explicitRate > 0) return Math.min(90, explicitRate);
+  const price = parseNumberInput(row.price);
+  const salePrice = parseNumberInput(row.salePrice);
+  if (price > 0 && salePrice > 0 && salePrice < price) {
+    return Math.round((1 - salePrice / price) * 1000) / 10;
+  }
+  return 0;
+}
+
+function latestWeekStart() {
+  const label = data.latestWeekLabel || "";
+  const match = label.match(/(\d{2})\/(\d{2})/);
+  if (!match) return null;
+  return new Date(2026, Number(match[1]) - 1, Number(match[2]));
+}
+
+function parsePeriodOffsets(periodText) {
+  const text = String(periodText || "").trim();
+  const weekMatches = [...text.matchAll(/W\+?(\d+)/gi)].map((match) => Number(match[1]));
+  if (weekMatches.length) {
+    const start = Math.min(...weekMatches);
+    const end = Math.max(...weekMatches);
+    return { start, end };
+  }
+
+  const base = latestWeekStart();
+  if (!base) return null;
+  const dateMatches = [...text.matchAll(/(?:(20\d{2})[-/.])?(\d{1,2})[-/.](\d{1,2})/g)];
+  if (!dateMatches.length) return null;
+  const toDate = (match) => new Date(Number(match[1] || 2026), Number(match[2]) - 1, Number(match[3]));
+  const startDate = toDate(dateMatches[0]);
+  const endDate = toDate(dateMatches[dateMatches.length - 1]);
+  const start = Math.floor((startDate - base) / (7 * 24 * 60 * 60 * 1000));
+  const end = Math.floor((endDate - base) / (7 * 24 * 60 * 60 * 1000));
+  return { start: Math.max(0, start), end: Math.min(26, Math.max(start, end)) };
+}
+
+function discountApplies(event, row) {
+  if (event.status === "cancelled") return false;
+  if (event.scope === "style" && normalize(event.styleCode) !== normalize(row.styleCode)) return false;
+  const period = parsePeriodOffsets(event.period);
+  if (!period) return false;
+  return Number(row.weekOffset) >= period.start && Number(row.weekOffset) <= period.end;
+}
+
+function discountImpactFor(row) {
+  const active = state.discounts.filter((event) => discountApplies(event, row));
+  const rawImpact = active.reduce((sum, event) => sum + (Number(event.discountRate || 0) / 100) * 0.55, 0);
+  return {
+    active,
+    factor: 1 + Math.min(0.6, rawImpact),
+  };
+}
+
+function applyDiscountToRecommendation(row) {
+  const impact = discountImpactFor(row);
+  if (!impact.active.length) return { ...row };
+  const neededQty = Math.round(Number(row.neededQty || 0) * impact.factor);
+  const forecastQty = Math.round(Number(row.forecastQty || 0) * impact.factor);
+  return {
+    ...row,
+    neededQty,
+    forecastQty,
+    discountFactor: impact.factor,
+    discountCount: impact.active.length,
+  };
+}
+
+function activeDiscountCount() {
+  return state.discounts.filter((event) => event.status !== "cancelled").length;
+}
+
 function recommendationsForWeek(weekOffset) {
   return data.recommendations
     .filter((row) => row.weekOffset === weekOffset)
+    .map((row) => applyDiscountToRecommendation(row))
     .sort((a, b) => b.neededQty - a.neededQty);
 }
 
 function fiveWeekQty(styleCode) {
   return data.recommendations
     .filter((row) => row.styleCode === styleCode)
-    .reduce((sum, row) => sum + Number(row.neededQty || 0), 0);
+    .reduce((sum, row) => sum + Number(applyDiscountToRecommendation(row).neededQty || 0), 0);
 }
 
 function w0Qty(styleCode) {
   const row = data.recommendations.find((item) => item.styleCode === styleCode && item.weekOffset === 0);
-  return Number(row?.neededQty || 0);
+  return Number(row ? applyDiscountToRecommendation(row).neededQty : 0);
 }
 
 function forecastFive(styleCode) {
@@ -117,7 +211,7 @@ function baseRows() {
 
 function renderMeta() {
   const w0Total = recommendationsForWeek(0).reduce((sum, row) => sum + Number(row.neededQty || 0), 0);
-  const fiveTotal = data.recommendations.reduce((sum, row) => sum + Number(row.neededQty || 0), 0);
+  const fiveTotal = weeks.reduce((sum, week) => sum + recommendationsForWeek(week).reduce((weekSum, row) => weekSum + Number(row.neededQty || 0), 0), 0);
   const rate = data.stats.joinedStyles ? Math.round((data.stats.recommendedStyles / data.stats.joinedStyles) * 1000) / 10 : 0;
   document.getElementById("generatedAt").textContent = `최신 ${data.latestWeekLabel} · ${data.generatedAt}`;
   document.getElementById("kpiStyles").textContent = `${formatPlain(data.stats.recommendedStyles)}건`;
@@ -127,6 +221,7 @@ function renderMeta() {
   document.getElementById("confirmCount").textContent = data.stats.recommendedStyles;
   document.getElementById("portfolioBar").style.width = `${Math.min(100, rate)}%`;
   document.getElementById("portfolioText").textContent = `추천 ${rate}%`;
+  document.getElementById("openDiscountList").textContent = `할인 확인 ${activeDiscountCount()}`;
 }
 
 function renderFilters() {
@@ -168,6 +263,7 @@ function renderWeekBoard() {
             <span>
               <b>${row.styleCode}</b>
               <small>${row.category || "-"} · ${row.subCategory || "-"}</small>
+              ${row.discountCount ? `<small class="discount-mark">할인 ${row.discountCount}건 반영</small>` : ""}
             </span>
             <em>${formatQty(row.neededQty)}</em>
           </button>
@@ -574,6 +670,199 @@ function closeStyleModal() {
   document.body.classList.remove("modal-open");
 }
 
+function discountRowTemplate(index, mode) {
+  if (mode === "all") {
+    return `
+      <tr>
+        <td class="row-index">${index + 1}</td>
+        <td><input class="discount-period" type="text" placeholder="예: 06/01~06/07 또는 W+2~W+3"></td>
+        <td><input class="discount-rate" type="number" min="0" max="90" placeholder="20"></td>
+      </tr>
+    `;
+  }
+  return `
+    <tr>
+      <td class="row-index">${index + 1}</td>
+      <td><input class="discount-period" type="text" placeholder="예: 06/01~06/07 또는 W+2"></td>
+      <td><input class="discount-style-code" type="text" placeholder="WHRAG2422F"></td>
+      <td><input class="discount-price" type="number" min="0" placeholder="29900"></td>
+      <td><input class="discount-sale-price" type="number" min="0" placeholder="23900"></td>
+      <td><input class="discount-rate" type="number" min="0" max="90" placeholder="20"></td>
+    </tr>
+  `;
+}
+
+function discountEntryTable(mode, count) {
+  const headers = mode === "all"
+    ? `<th></th><th>기간</th><th>할인율</th>`
+    : `<th></th><th>기간</th><th>스타일코드</th><th>가격</th><th>할인가</th><th>할인율</th>`;
+  return `
+    <div class="discount-sheet-wrap">
+      <table class="discount-sheet ${mode === "all" ? "compact" : ""}">
+        <thead><tr>${headers}</tr></thead>
+        <tbody id="discountRows">
+          ${Array.from({ length: count }, (_, index) => discountRowTemplate(index, mode)).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openDiscountPlan(mode = "style") {
+  state.discountMode = mode;
+  const modal = document.createElement("div");
+  modal.className = "discount-modal-backdrop";
+  modal.innerHTML = `
+    <section class="discount-modal" role="dialog" aria-modal="true">
+      <header class="modal-head">
+        <h2>할인 행사 등록</h2>
+        <button class="modal-close discount-close" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="discount-body">
+        <div class="discount-mode-tabs">
+          <button class="${mode === "style" ? "active" : ""}" type="button" data-mode="style">특정 스타일</button>
+          <button class="${mode === "all" ? "active" : ""}" type="button" data-mode="all">전체 스타일</button>
+        </div>
+        <div id="discountEntryArea">${discountEntryTable(mode, mode === "style" ? 12 : 5)}</div>
+        <div class="discount-footer">
+          ${mode === "style" ? `<button id="addDiscountRow" class="add-discount-row" type="button">추가</button>` : `<span></span>`}
+          <button id="confirmDiscounts" class="confirm-discount" type="button">확인</button>
+        </div>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector(".discount-close").addEventListener("click", close);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+  modal.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      close();
+      openDiscountPlan(button.dataset.mode);
+    });
+  });
+  modal.querySelector("#addDiscountRow")?.addEventListener("click", () => {
+    const body = modal.querySelector("#discountRows");
+    body.insertAdjacentHTML("beforeend", discountRowTemplate(body.children.length, "style"));
+  });
+  modal.querySelector("#confirmDiscounts").addEventListener("click", () => {
+    const rows = [...modal.querySelectorAll("#discountRows tr")];
+    const events = rows.map((tr) => {
+      const period = tr.querySelector(".discount-period")?.value.trim();
+      const styleCode = tr.querySelector(".discount-style-code")?.value.trim().toUpperCase() || "";
+      const price = tr.querySelector(".discount-price")?.value.trim() || "";
+      const salePrice = tr.querySelector(".discount-sale-price")?.value.trim() || "";
+      const discountRate = parseDiscountRate({ price, salePrice, discountRate: tr.querySelector(".discount-rate")?.value });
+      if (!period || discountRate <= 0) return null;
+      if (mode === "style" && !styleCode) return null;
+      return {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        createdAt: new Date().toISOString(),
+        scope: mode,
+        period,
+        styleCode,
+        price: parseNumberInput(price),
+        salePrice: parseNumberInput(salePrice),
+        discountRate,
+        status: "active",
+      };
+    }).filter(Boolean);
+    if (!events.length) {
+      alert("등록할 할인 정보를 입력해 주세요.");
+      return;
+    }
+    state.discounts = [...state.discounts, ...events];
+    saveDiscounts();
+    renderAll();
+    close();
+  });
+}
+
+function discountScopeText(event) {
+  return event.scope === "all" ? "전체 스타일" : event.styleCode;
+}
+
+function discountStatusText(event) {
+  return event.status === "cancelled" ? "취소됨" : "활성";
+}
+
+function discountListTable({ cancellable = false } = {}) {
+  const rows = state.discounts.length ? state.discounts : [];
+  if (!rows.length) {
+    return `<div class="discount-empty">등록된 할인 일정이 없습니다.</div>`;
+  }
+  return `
+    <div class="discount-list-wrap">
+      <table class="discount-list">
+        <thead>
+          <tr>
+            <th>상태</th>
+            <th>대상</th>
+            <th>기간</th>
+            <th>가격</th>
+            <th>할인가</th>
+            <th>할인율</th>
+            ${cancellable ? "<th>취소</th>" : ""}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((event) => `
+            <tr class="${event.status === "cancelled" ? "cancelled" : ""}">
+              <td>${discountStatusText(event)}</td>
+              <td>${safe(discountScopeText(event))}</td>
+              <td>${safe(event.period)}</td>
+              <td>${event.price ? formatMoney(event.price) : "-"}</td>
+              <td>${event.salePrice ? formatMoney(event.salePrice) : "-"}</td>
+              <td>${event.discountRate}%</td>
+              ${cancellable ? `<td>${event.status === "cancelled" ? "-" : `<button class="cancel-discount" type="button" data-id="${event.id}">취소</button>`}</td>` : ""}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openDiscountList({ cancellable = false } = {}) {
+  const modal = document.createElement("div");
+  modal.className = "discount-modal-backdrop";
+  modal.innerHTML = `
+    <section class="discount-modal list" role="dialog" aria-modal="true">
+      <header class="modal-head">
+        <h2>${cancellable ? "할인 취소" : "할인 확인"}</h2>
+        <button class="modal-close discount-close" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="discount-body">
+        ${discountListTable({ cancellable })}
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelector(".discount-close").addEventListener("click", close);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+  modal.querySelectorAll(".cancel-discount").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.discounts = state.discounts.map((event) => event.id === button.dataset.id ? { ...event, status: "cancelled" } : event);
+      saveDiscounts();
+      renderAll();
+      close();
+      openDiscountList({ cancellable: true });
+    });
+  });
+}
+
+function renderAll() {
+  renderMeta();
+  renderWeekBoard();
+  renderDetailTable();
+}
+
 function pointsToPath(points) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
@@ -699,6 +988,9 @@ function bindEvents() {
   document.getElementById("resetFilters").addEventListener("click", resetFilters);
   document.getElementById("downloadCsv").addEventListener("click", () => alert("다음 단계에서 CSV 다운로드를 연결할 수 있습니다."));
   document.getElementById("addStyle").addEventListener("click", () => alert("다음 단계에서 수동 스타일 추가를 연결할 수 있습니다."));
+  document.getElementById("openDiscountPlan").addEventListener("click", () => openDiscountPlan("style"));
+  document.getElementById("openDiscountList").addEventListener("click", () => openDiscountList());
+  document.getElementById("openDiscountCancel").addEventListener("click", () => openDiscountList({ cancellable: true }));
 }
 
 document.getElementById("modalClose").addEventListener("click", closeStyleModal);

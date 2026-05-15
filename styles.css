@@ -88,6 +88,23 @@ h1 span,
   font-size: 12px;
 }
 
+.discount-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.discount-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: rgba(56, 215, 255, 0.55);
+  color: var(--cyan);
+  background: rgba(8, 43, 58, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .hero-copy {
   max-width: 720px;
   margin-top: 9px;
@@ -333,6 +350,10 @@ input[type="search"] {
   color: var(--muted);
   font-size: 11px;
   margin-top: 3px;
+}
+
+.week-item .discount-mark {
+  color: var(--amber);
 }
 
 .week-item em {
@@ -1002,6 +1023,161 @@ svg {
 
 .modal-legend .predicted::before {
   background: var(--danger);
+}
+
+.discount-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 5, 10, 0.62);
+  backdrop-filter: blur(5px);
+}
+
+.discount-modal {
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(780px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid rgba(70, 119, 153, 0.9);
+  border-radius: 14px;
+  background: #101827;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
+}
+
+.discount-modal.list {
+  width: min(1040px, calc(100vw - 48px));
+}
+
+.discount-body {
+  padding: 18px;
+  overflow: auto;
+  max-height: calc(min(780px, 100vh - 48px) - 64px);
+}
+
+.discount-mode-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 56px;
+  margin-bottom: 18px;
+}
+
+.discount-mode-tabs button {
+  min-width: 120px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.discount-mode-tabs button.active {
+  color: var(--cyan);
+  border-bottom: 2px solid var(--cyan);
+}
+
+.discount-sheet-wrap,
+.discount-list-wrap {
+  border: 1px solid rgba(70, 119, 153, 0.45);
+  border-radius: 8px;
+  overflow: auto;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    rgba(13, 27, 41, 0.72);
+  background-size: 58px 28px, 58px 28px, auto;
+}
+
+.discount-sheet,
+.discount-list {
+  width: 100%;
+  min-width: 0;
+  border-collapse: collapse;
+}
+
+.discount-sheet th,
+.discount-sheet td,
+.discount-list th,
+.discount-list td {
+  height: 34px;
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(70, 119, 153, 0.32);
+  font-size: 13px;
+}
+
+.discount-sheet th,
+.discount-list th {
+  position: static;
+  color: var(--ink);
+  background: rgba(13, 27, 41, 0.92);
+  font-size: 13px;
+}
+
+.discount-sheet .row-index {
+  width: 38px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.discount-sheet input {
+  width: 100%;
+  min-height: 26px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: 0;
+}
+
+.discount-sheet.compact {
+  width: min(560px, 100%);
+  margin: 0 auto;
+}
+
+.discount-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.add-discount-row {
+  border-color: rgba(255, 107, 107, 0.7);
+  color: #ff8b8b;
+  background: rgba(255, 107, 107, 0.08);
+  font-weight: 900;
+}
+
+.confirm-discount {
+  min-width: 110px;
+  border-color: rgba(56, 215, 255, 0.75);
+  color: var(--cyan);
+  font-weight: 900;
+}
+
+.discount-empty {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  color: var(--muted);
+}
+
+.discount-list tr.cancelled td {
+  color: #6f8193;
+  text-decoration: line-through;
+}
+
+.cancel-discount {
+  min-height: 26px;
+  padding: 0 10px;
+  border-color: rgba(255, 107, 107, 0.58);
+  color: #ff8b8b;
+  background: rgba(255, 107, 107, 0.08);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .similar {

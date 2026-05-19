@@ -2,8 +2,8 @@
 $ProgressPreference = "SilentlyContinue"
 
 $sourceDir = "C:\Users\chung_woojoon01\Downloads\후아유 데이터"
-$weeklyWorkbookPath = Join-Path $sourceDir "후아유 주차별 데이터(1).xlsx"
-$skuWorkbookPath = Join-Path $sourceDir "컬러별, 사이즈별 소진(1).xlsx"
+$weeklyWorkbookPath = Join-Path $sourceDir "후아유 주차별 데이터(2).xlsx"
+$skuWorkbookPath = Join-Path $sourceDir "컬러별, 사이즈별 소진(2).xlsx"
 $progressMapPath = Join-Path (Split-Path -Parent $PSScriptRoot) "data\progress-similar-map.json"
 $productionPath = Join-Path $sourceDir "후아유 생산정보.csv"
 $legacySalesPath = Join-Path $sourceDir "후아유 주차별 매출.csv"

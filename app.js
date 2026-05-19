@@ -7,6 +7,7 @@ const state = {
   category: "all",
   week: "all",
   selectedStyle: null,
+  selectedWeekOffset: 0,
   discountMode: "style",
   discounts: loadDiscounts(),
 };
@@ -188,6 +189,11 @@ function w0Qty(styleCode) {
   return Number(row ? applyDiscountToRecommendation(row).neededQty : 0);
 }
 
+function reorderQtyForWeek(styleCode, weekOffset) {
+  const row = data.recommendations.find((item) => item.styleCode === styleCode && Number(item.weekOffset) === Number(weekOffset));
+  return Number(row ? applyDiscountToRecommendation(row).neededQty : 0);
+}
+
 function forecastFive(styleCode) {
   return data.recommendations
     .filter((row) => row.styleCode === styleCode)
@@ -305,7 +311,7 @@ function renderWeekBoard() {
       </div>
       <div class="week-items">
         ${rows.map((row) => `
-          <button class="week-item" type="button" data-style="${row.styleCode}">
+          <button class="week-item" type="button" data-style="${row.styleCode}" data-week="${week}">
             <span>
               <b>${row.styleCode}</b>
               <small>${row.category || "-"} · ${row.subCategory || "-"}</small>
@@ -322,7 +328,8 @@ function renderWeekBoard() {
   board.querySelectorAll(".week-item").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedStyle = button.dataset.style;
-      openStyleModal(button.dataset.style);
+      state.selectedWeekOffset = Number(button.dataset.week || 0);
+      openStyleModal(button.dataset.style, state.selectedWeekOffset);
       renderDetailTable();
     });
   });
@@ -398,7 +405,8 @@ function renderDetailTable() {
   body.querySelectorAll(".style-pill").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedStyle = button.dataset.style;
-      openStyleModal(button.dataset.style);
+      state.selectedWeekOffset = 0;
+      openStyleModal(button.dataset.style, 0);
       renderDetailTable();
     });
   });
@@ -429,10 +437,10 @@ function stylePeakLabel(style) {
   return points[0] ? `${points[0].label} / ${formatQty(points[0].qty)}` : "-";
 }
 
-function modalSkuRows(style) {
+function modalSkuRows(style, weekOffset = state.selectedWeekOffset || 0) {
   const rows = (style.skuPlan || []).filter((row) => Number(row.recommendedQty || 0) > 0);
   const totalSkuQty = rows.reduce((sum, row) => sum + Number(row.recommendedQty || 0), 0);
-  const thisWeekTotal = w0Qty(style.styleCode);
+  const weekTotal = reorderQtyForWeek(style.styleCode, weekOffset);
   return rows
     .sort((a, b) => Number(b.recommendedQty || 0) - Number(a.recommendedQty || 0))
     .slice(0, 42)
@@ -441,7 +449,7 @@ function modalSkuRows(style) {
       return {
         color: row.colorName ? `${row.colorCode} ${row.colorName}` : row.colorCode,
         size: row.size,
-        thisWeek: Math.round(thisWeekTotal * share),
+        thisWeek: Math.round(weekTotal * share),
         fourWeeks: Number(row.recommendedQty || 0),
         recentSales: Number(row.recentSales || 0),
         sellThrough: Number(row.sellThrough || 0),
@@ -449,8 +457,9 @@ function modalSkuRows(style) {
     });
 }
 
-function buildModalSkuTable(style) {
-  const rows = modalSkuRows(style);
+function buildModalSkuTable(style, weekOffset = state.selectedWeekOffset || 0) {
+  const rows = modalSkuRows(style, weekOffset);
+  const weekLabel = `W+${Number(weekOffset || 0)}`;
   if (!rows.length) {
     return `<div class="modal-empty">컬러/사이즈별 소진 데이터가 부족해서 세부 배분을 만들지 못했습니다.</div>`;
   }
@@ -458,7 +467,7 @@ function buildModalSkuTable(style) {
     <div class="modal-table-scroll">
       <table class="modal-sku-table">
         <thead>
-          <tr><th>컬러</th><th>사이즈</th><th class="num">이번주</th><th class="num">4주 누계</th></tr>
+          <tr><th>컬러</th><th>사이즈</th><th class="num">${weekLabel} 리오더</th><th class="num">전체 배분</th></tr>
         </thead>
         <tbody>
           ${rows.map((row, index) => `
@@ -557,9 +566,9 @@ function buildSkuChartSvg(points, title) {
   `;
 }
 
-function openSkuDetail(styleCode, skuIndex) {
+function openSkuDetail(styleCode, skuIndex, weekOffset = state.selectedWeekOffset || 0) {
   const style = byStyle.get(styleCode);
-  const sku = modalSkuRows(style || {})[Number(skuIndex)];
+  const sku = modalSkuRows(style || {}, weekOffset)[Number(skuIndex)];
   if (!style || !sku) return;
   const points = buildSkuTrend(style, sku);
   const skuOrderQty = estimatedSkuOrderQty(sku);
@@ -651,9 +660,10 @@ function buildModalTrendChart(style) {
   `;
 }
 
-function openStyleModal(styleCode) {
+function openStyleModal(styleCode, weekOffset = state.selectedWeekOffset || 0) {
   const style = byStyle.get(styleCode);
   if (!style) return;
+  state.selectedWeekOffset = Number(weekOffset || 0);
   const modal = document.getElementById("styleModal");
   const body = document.getElementById("modalBody");
   const title = document.getElementById("modalTitle");
@@ -697,8 +707,8 @@ function openStyleModal(styleCode) {
           </div>
         </div>
         <div class="modal-stat-block">
-          <h3>컬러별 / 사이즈별 리오더 수량</h3>
-          ${buildModalSkuTable(style)}
+          <h3>컬러별 / 사이즈별 W+${Number(weekOffset || 0)} 리오더 수량</h3>
+          ${buildModalSkuTable(style, weekOffset)}
         </div>
         ${buildModalTrendChart(style)}
       </div>
@@ -707,7 +717,7 @@ function openStyleModal(styleCode) {
   modal.hidden = false;
   document.body.classList.add("modal-open");
   body.querySelectorAll(".sku-reorder-button").forEach((button) => {
-    button.addEventListener("click", () => openSkuDetail(style.styleCode, button.dataset.skuIndex));
+    button.addEventListener("click", () => openSkuDetail(style.styleCode, button.dataset.skuIndex, state.selectedWeekOffset));
   });
 }
 

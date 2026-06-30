@@ -437,7 +437,7 @@ function openCoPurchaseModal(styleCode = state.detailStyleCode) {
     body.innerHTML = `<div class="empty">이번 주 같은 주문번호에서 함께 팔린 스타일 데이터가 없습니다.</div>`;
   } else {
     body.innerHTML = `
-      <p class="co-week">기준 주차 ${escapeHtml(style.coPurchaseWeekLabel || targetWeekLabel())} · 온라인/옴니 주문번호 기준</p>
+      <p class="co-week">기준 기간 ${escapeHtml(style.coPurchaseWeekLabel || targetWeekLabel())} · 온라인/옴니 주문번호 기준</p>
       <div class="co-list">
         ${items.slice(0, 5).map((item, index) => `<article class="co-row">
           <div class="rank">${index + 1}</div>

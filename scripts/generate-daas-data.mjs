@@ -168,6 +168,9 @@ loadEnv(envPath);
 const targetWeek = previousCompleteWeek();
 const yearStart = `${targetWeek.end.getFullYear()}0101`;
 const inventoryStart = `${targetWeek.end.getFullYear() - 1}0101`;
+const coPurchaseStart = new Date(targetWeek.end);
+coPurchaseStart.setDate(targetWeek.end.getDate() - 27);
+const coPurchaseLabel = labelFromDates(coPurchaseStart, targetWeek.end);
 
 const sql = `
 WITH plant_daily AS (
@@ -310,44 +313,15 @@ try {
     `, [inventoryStart, targetWeek.endYmd, materials]);
     inventoryRows = inventoryResult.rows;
     const coPurchaseResult = await client.query(`
-      WITH order_lines AS (
-        SELECT
-          weborderno,
-          stylecode AS material,
-          SUM(COALESCE(qty, 0)) AS qty
-        FROM ods.omni_spprd_mart
-        WHERE calday BETWEEN $1 AND $2
-          AND weborderno IS NOT NULL
-          AND weborderno <> ''
-          AND stylecode LIKE 'WH%'
-          AND stylecode = ANY($3)
-          AND SUBSTRING(stylecode FROM 6 FOR 1) <> 'B'
-        GROUP BY weborderno, stylecode
-      ),
-      pairs AS (
-        SELECT
-          a.material AS material,
-          b.material AS related_material,
-          COUNT(DISTINCT a.weborderno) AS together_orders,
-          SUM(b.qty) AS together_qty
-        FROM order_lines a
-        JOIN order_lines b ON a.weborderno = b.weborderno AND a.material <> b.material
-        GROUP BY a.material, b.material
-      ),
-      ranked AS (
-        SELECT
-          *,
-          ROW_NUMBER() OVER (
-            PARTITION BY material
-            ORDER BY together_orders DESC, together_qty DESC, related_material
-          ) AS rank_no
-        FROM pairs
-      )
-      SELECT material, related_material, together_orders, together_qty, rank_no
-      FROM ranked
-      WHERE rank_no <= 5
-      ORDER BY material, rank_no
-    `, [targetWeek.startYmd, targetWeek.endYmd, materials]);
+      SELECT weborderno, stylecode AS material, SUM(COALESCE(qty, 0)) AS qty
+      FROM ods.omni_spprd_mart
+      WHERE calday BETWEEN $1 AND $2
+        AND weborderno IS NOT NULL
+        AND weborderno <> ''
+        AND stylecode LIKE 'WH%'
+        AND SUBSTRING(stylecode FROM 6 FOR 1) <> 'B'
+      GROUP BY weborderno, stylecode
+    `, [ymd(coPurchaseStart), targetWeek.endYmd]);
     coPurchaseRows = coPurchaseResult.rows;
   }
 } finally {
@@ -356,17 +330,45 @@ try {
 
 const styleNameMap = new Map(styleNameRows.map((row) => [row.material, row.material_names]));
 const inventoryMap = new Map(inventoryRows.map((row) => [row.material, row]));
+const materialSet = new Set((rows || []).map((row) => row.material));
 const coPurchaseMap = new Map();
+const linesByOrder = new Map();
 for (const row of coPurchaseRows) {
-  const material = row.material;
-  if (!coPurchaseMap.has(material)) coPurchaseMap.set(material, []);
-  coPurchaseMap.get(material).push({
-    rank: Number(row.rank_no || 0),
-    styleCode: row.related_material,
-    styleName: bestStyleName(styleNameMap.get(row.related_material), row.related_material),
-    togetherQty: Math.round(toNumber(row.together_qty)),
-    togetherOrders: Math.round(toNumber(row.together_orders)),
+  if (!linesByOrder.has(row.weborderno)) linesByOrder.set(row.weborderno, []);
+  linesByOrder.get(row.weborderno).push({
+    material: row.material,
+    qty: toNumber(row.qty),
   });
+}
+
+for (const lines of linesByOrder.values()) {
+  const uniqueLines = lines.filter((line, index, array) => array.findIndex((item) => item.material === line.material) === index);
+  if (uniqueLines.length < 2 || uniqueLines.length > 20) continue;
+  for (const base of uniqueLines) {
+    if (!materialSet.has(base.material)) continue;
+    if (!coPurchaseMap.has(base.material)) coPurchaseMap.set(base.material, new Map());
+    const relatedMap = coPurchaseMap.get(base.material);
+    for (const related of uniqueLines) {
+      if (base.material === related.material) continue;
+      const current = relatedMap.get(related.material) || { orders: 0, qty: 0 };
+      current.orders += 1;
+      current.qty += related.qty;
+      relatedMap.set(related.material, current);
+    }
+  }
+}
+
+for (const [material, relatedMap] of coPurchaseMap.entries()) {
+  coPurchaseMap.set(material, [...relatedMap.entries()]
+    .map(([relatedMaterial, value]) => ({
+      styleCode: relatedMaterial,
+      styleName: bestStyleName(styleNameMap.get(relatedMaterial), relatedMaterial),
+      togetherQty: Math.round(value.qty),
+      togetherOrders: Math.round(value.orders),
+    }))
+    .sort((a, b) => b.togetherOrders - a.togetherOrders || b.togetherQty - a.togetherQty || a.styleCode.localeCompare(b.styleCode))
+    .slice(0, 5)
+    .map((item, index) => ({ rank: index + 1, ...item })));
 }
 const grouped = new Map();
 for (const row of rows) {
@@ -500,7 +502,7 @@ for (const style of grouped.values()) {
     forecast: [],
     priorSeries: [],
     similarStyle: null,
-    coPurchaseWeekLabel: targetWeek.label,
+    coPurchaseWeekLabel: coPurchaseLabel,
     coPurchases: coPurchaseMap.get(style.styleCode) || [],
     colors: [],
     skuPlan: [],

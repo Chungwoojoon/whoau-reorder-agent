@@ -342,7 +342,10 @@ for (const row of coPurchaseRows) {
 }
 
 for (const lines of linesByOrder.values()) {
-  const uniqueLines = lines.filter((line, index, array) => array.findIndex((item) => item.material === line.material) === index);
+  const positiveLines = lines
+    .map((line) => ({ ...line, qty: Math.max(0, line.qty) }))
+    .filter((line) => line.qty > 0);
+  const uniqueLines = positiveLines.filter((line, index, array) => array.findIndex((item) => item.material === line.material) === index);
   if (uniqueLines.length < 2 || uniqueLines.length > 20) continue;
   for (const base of uniqueLines) {
     if (!materialSet.has(base.material)) continue;

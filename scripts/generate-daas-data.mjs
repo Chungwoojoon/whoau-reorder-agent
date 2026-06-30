@@ -69,6 +69,11 @@ function toNumber(value) {
   return Number(value || 0);
 }
 
+function normalizePrice(value) {
+  const price = toNumber(value);
+  return price > 0 && price < 10000 ? price * 100 : price;
+}
+
 function cleanStyleName(value, fallback = "") {
   return String(value || fallback || "")
     .split(",")[0]
@@ -318,7 +323,7 @@ for (const row of rows) {
       styleCode: material,
       styleName: bestStyleName(styleNameMap.get(material) || row.material_nm, material),
       category: row.category_nm || classifyCategory(material),
-      price: toNumber(row.price),
+      price: normalizePrice(row.price),
       days: [],
     });
   }

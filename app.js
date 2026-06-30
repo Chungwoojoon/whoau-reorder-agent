@@ -25,6 +25,15 @@ const numberFormat = new Intl.NumberFormat("ko-KR");
 const moneyFormat = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byStyle = new Map((sourceData.styles || []).map((style) => [style.styleCode, style]));
 
+function compactMoney(value) {
+  const amount = Number(value || 0);
+  const sign = amount < 0 ? "-" : "";
+  const abs = Math.abs(amount);
+  if (abs >= 1000000) return `${sign}${(abs / 1000000).toFixed(1)}백만`;
+  if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(1)}만`;
+  return moneyFormat.format(Math.round(amount));
+}
+
 const METRICS = {
   weeklyQty: {
     label: "주판량",
@@ -43,7 +52,7 @@ const METRICS = {
     subtitle: "전 주 월요일부터 일요일까지 판매 금액 기준으로 전체와 아이템별 순위를 확인합니다.",
     value: (row) => row.weeklySalesAmount,
     total: (rows) => rows.reduce((sum, row) => sum + row.weeklySalesAmount, 0),
-    format: (value) => moneyFormat.format(Math.round(Number(value || 0))),
+    format: (value) => compactMoney(value),
     subText: (row) => `${numberFormat.format(row.weeklyQty)}pcs · 주판율 ${percent(row.weeklyQty, row.inboundQty)}`,
   },
   weeklyRate: {
@@ -73,7 +82,7 @@ const METRICS = {
     subtitle: "전 주 월요일부터 일요일까지 정상 판매 금액 기준으로 전체와 아이템별 순위를 확인합니다.",
     value: (row) => row.normalSalesAmount,
     total: (rows) => rows.reduce((sum, row) => sum + row.normalSalesAmount, 0),
-    format: (value) => moneyFormat.format(Math.round(Number(value || 0))),
+    format: (value) => compactMoney(value),
     subText: (row) => `${numberFormat.format(row.normalQty)}pcs · 정판율 ${percent(row.normalQty, row.inboundQty)}`,
   },
   normalRate: {
@@ -159,8 +168,8 @@ function rowMeta(row) {
   const amountMode = state.metric === "weeklyAmount" || state.metric === "normalAmount";
   const salesText = amountMode
     ? [
-        `<span>주판액 ${moneyFormat.format(row.weeklySalesAmount || 0)}</span>`,
-        `<span>정판액 ${moneyFormat.format(row.normalSalesAmount || 0)}</span>`,
+        `<span>주판액 ${compactMoney(row.weeklySalesAmount || 0)}</span>`,
+        `<span>정판액 ${compactMoney(row.normalSalesAmount || 0)}</span>`,
       ]
     : [
         `<span>주판량 ${numberFormat.format(row.weeklyQty)}pcs</span>`,

@@ -162,6 +162,7 @@ loadEnv(envPath);
 
 const targetWeek = previousCompleteWeek();
 const yearStart = `${targetWeek.end.getFullYear()}0101`;
+const inventoryStart = `${targetWeek.end.getFullYear() - 1}0101`;
 
 const sql = `
 WITH plant_daily AS (
@@ -239,6 +240,7 @@ const client = getClient();
 await client.connect();
 let rows;
 let styleNameRows = [];
+let inventoryRows = [];
 try {
   const result = await client.query(sql, [yearStart, targetWeek.endYmd]);
   rows = result.rows;
@@ -253,12 +255,61 @@ try {
       GROUP BY LEFT(material, 10)
     `, [materials]);
     styleNameRows = namesResult.rows;
+    const inventoryResult = await client.query(`
+      WITH filtered AS (
+        SELECT
+          LEFT(material, 10) AS material,
+          calday,
+          COALESCE(ipgo_qty, 0) AS inbound_qty,
+          COALESCE(ordqty, 0) AS order_qty,
+          COALESCE(ordamt, 0) AS order_amt,
+          COALESCE(hstoc_qty, 0) + COALESCE(sstoc_tmp_qty, 0) AS stock_qty
+        FROM fpw.total_mart
+        WHERE calday BETWEEN $1 AND $2
+          AND LENGTH(calday) = 8
+          AND calday ~ '^[0-9]{8}$'
+          AND material LIKE 'WH%'
+          AND LEFT(material, 10) = ANY($3)
+          AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+          AND COALESCE(plant, '') <> '1118'
+      ),
+      latest AS (
+        SELECT material, MAX(calday) AS latest_calday
+        FROM filtered
+        GROUP BY material
+      ),
+      movement AS (
+        SELECT
+          material,
+          SUM(inbound_qty) AS inbound_qty,
+          SUM(order_qty) AS order_qty,
+          SUM(order_amt) AS order_amt
+        FROM filtered
+        GROUP BY material
+      ),
+      stock AS (
+        SELECT f.material, SUM(f.stock_qty) AS stock_qty
+        FROM filtered f
+        JOIN latest l ON f.material = l.material AND f.calday = l.latest_calday
+        GROUP BY f.material
+      )
+      SELECT
+        m.material,
+        COALESCE(m.inbound_qty, 0) AS inbound_qty,
+        COALESCE(m.order_qty, 0) AS order_qty,
+        COALESCE(m.order_amt, 0) AS order_amt,
+        COALESCE(s.stock_qty, 0) AS stock_qty
+      FROM movement m
+      LEFT JOIN stock s ON m.material = s.material
+    `, [inventoryStart, targetWeek.endYmd, materials]);
+    inventoryRows = inventoryResult.rows;
   }
 } finally {
   await client.end();
 }
 
 const styleNameMap = new Map(styleNameRows.map((row) => [row.material, row.material_names]));
+const inventoryMap = new Map(inventoryRows.map((row) => [row.material, row]));
 const grouped = new Map();
 for (const row of rows) {
   const material = row.material;
@@ -282,10 +333,6 @@ for (const style of grouped.values()) {
   let totalNormalQty = 0;
   let totalSalesAmount = 0;
   let totalNormalAmount = 0;
-  let inboundQty = 0;
-  let orderQty = 0;
-  let orderAmount = 0;
-  let stock = 0;
   const totalChannels = emptyChannels();
 
   for (const day of style.days) {
@@ -338,11 +385,13 @@ for (const style of grouped.values()) {
     totalNormalQty += toNumber(day.normal_qty);
     totalSalesAmount += saleAmount;
     totalNormalAmount += toNumber(day.normal_amt);
-    inboundQty += toNumber(day.inbound_qty);
-    orderQty += toNumber(day.order_qty);
-    orderAmount += toNumber(day.order_amt);
-    stock += toNumber(day.stock_delta);
   }
+
+  const inventory = inventoryMap.get(style.styleCode) || {};
+  const inboundQty = toNumber(inventory.inbound_qty);
+  const orderQty = toNumber(inventory.order_qty);
+  const orderAmount = toNumber(inventory.order_amt);
+  const stock = toNumber(inventory.stock_qty);
 
   const weekly = [...weeklyMap.values()].map((week, index) => ({
     index,

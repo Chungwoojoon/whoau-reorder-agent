@@ -452,6 +452,23 @@ function Build-FullTrend($style, $similar, $forecast) {
   return $actual
 }
 
+function Get-PreviousCompleteWeekLabel([datetime]$Reference = (Get-Date)) {
+  $today = $Reference.Date
+  $daysSinceMonday = (([int]$today.DayOfWeek + 6) % 7)
+  $currentMonday = $today.AddDays(-1 * $daysSinceMonday)
+  $previousMonday = $currentMonday.AddDays(-7)
+  $previousSunday = $currentMonday.AddDays(-1)
+  return "{0:MM/dd}~{1:MM/dd}" -f $previousMonday, $previousSunday
+}
+
+function Get-WeekRowForLabel($weekly, [string]$label) {
+  $exact = @($weekly | Where-Object { $_.label -eq $label } | Select-Object -First 1)
+  if ($exact.Count -gt 0) { return $exact[0] }
+  $fallback = @($weekly | Select-Object -Last 1)
+  if ($fallback.Count -gt 0) { return $fallback[0] }
+  return [ordered]@{ label = ""; actualQty = 0; normalQty = 0; salesAmount = 0; normalAmount = 0 }
+}
+
 $metadataByStyle = @{}
 
 $productionByStyle = @{}
@@ -505,6 +522,7 @@ if (Test-Path $costWorkbookPath) {
 }
 
 $stylePayload = @(); $recommendations = @(); $summaryRows = @()
+$targetWeekLabel = Get-PreviousCompleteWeekLabel
 foreach ($style in $styles2026) {
   $similar = Find-MappedSimilarStyle $style $priorByCode $progressMap
   if (-not $similar) { $similar = Find-SimilarStyle $style $styles2025 }
@@ -542,7 +560,7 @@ foreach ($style in $styles2026) {
         $recommendations += [ordered]@{ weekOffset = $bucket; weekLabel = "W+" + $bucket; styleCode = $style.styleCode; styleName = $style.styleName; season = $meta.season; category = $meta.categoryMid; subCategory = $meta.categorySmall; neededQty = [int]$qty; forecastQty = [int]$target; estimatedStock = [int]$estimatedStock; price = [int]$style.price; orderAmount = [math]::Round($qty * $style.price); colors = @($colorRows | Where-Object { $_.recommendedQty -gt 0 } | Select-Object -First 6) }
       }
     }
-    $lastWeek = @($style.weekly | Select-Object -Last 1)[0]
+    $lastWeek = Get-WeekRowForLabel $style.weekly $targetWeekLabel
     $summaryRows += [ordered]@{ season = $meta.season; category = $meta.categoryMid; styleCode = $style.styleCode; styleName = $style.styleName; orderAmount = [math]::Round($reorderTotal * $style.price); inboundAmount = [math]::Round($production.inboundQty * $style.price); weekSalesAmount = [math]::Round($lastWeek.actualQty * $style.price); cumulativeSalesAmount = [math]::Round($style.totalSalesAmount); regularSalesAmount = [math]::Round($style.totalNormalAmount); reorderTotal = [int]$reorderTotal; similarStyleCode = if ($similar) { $similar.style.styleCode } else { "" }; similarStyleName = if ($similar) { $similar.style.styleName } else { "" }; similarScore = if ($similar) { $similar.score } else { 0 }; similarSource = if ($similar -and $similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $style.normalRate }
   }
   $stylePayload += [ordered]@{ styleCode = $style.styleCode; styleName = $style.styleName; productName = $style.styleName; season = $meta.season; categoryLarge = $meta.categoryLarge; categoryMid = $meta.categoryMid; categorySmall = $meta.categorySmall; price = [int]$style.price; inboundQty = [math]::Round($production.inboundQty); orderQty = [math]::Round($production.orderQty); orderAmount = [math]::Round($style.orderAmountFromWeekly); totalQty = [math]::Round($style.totalQty); totalNormalQty = [math]::Round($style.totalNormalQty); totalSalesAmount = [math]::Round($style.totalSalesAmount); totalNormalAmount = [math]::Round($style.totalNormalAmount); normalRate = $style.normalRate; costRate = $cost.costRate; preCost = $cost.preCost; postCost = $cost.postCost; preCostPerUnit = $cost.preCostPerUnit; postCostPerUnit = $cost.postCostPerUnit; stock = [int]$estimatedStock; reorderTotal = [int]$reorderTotal; plcWeekOffset = if ($forecast.Count -gt 0) { [int]$forecast[-1].offset } else { 0 }; weekly = @($style.weekly | Select-Object -Last 14); trend = @($fullTrend); forecast = @($forecast | Select-Object -First 12); priorSeries = @($built.priorSeries | Select-Object -First 12); similarStyle = if ($similar) { [ordered]@{ styleCode = $similar.style.styleCode; styleName = $similar.style.styleName; score = $similar.score; source = if ($similar.Contains("source")) { $similar.source } else { "name-match" }; normalRate = $similar.style.normalRate; totalQty = $similar.style.totalQty; totalNormalQty = $similar.style.totalNormalQty; orderAmount = $similar.style.orderAmountFromWeekly } } else { $null }; colors = @($colorRows); skuPlan = @($skuPlan) }
@@ -550,9 +568,14 @@ foreach ($style in $styles2026) {
 
 $recommendedStyleSet = @{}; foreach ($row in $summaryRows) { $recommendedStyleSet[$row.styleCode] = 1 }
 $latestLabel = if ($styles2026.Count -gt 0) { (@($styles2026[0].weekly | Select-Object -Last 1)[0].label) } else { "" }
-$payload = [ordered]@{ generatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); latestWeek = $latestLabel; latestWeekLabel = $latestLabel; sourceDir = $sourceDir; sourceWorkbook = $weeklyWorkbookPath; skuWorkbook = $skuWorkbookPath; costWorkbook = $costWorkbookPath; progressMap = $progressMapPath; stats = [ordered]@{ productionStyles = $styles2026.Count; joinedStyles = $styles2026.Count; priorStyles = $styles2025.Count; progressMappedStyles = $progressMap.Count; skuStyles = $skuByStyle.Count; costStyles = $costByStyle.Count; recommendedStyles = $recommendedStyleSet.Count; recommendationRows = $recommendations.Count }; recommendations = @($recommendations | Sort-Object weekOffset, @{ Expression = "neededQty"; Descending = $true }); summary = @($summaryRows | Sort-Object @{ Expression = "orderAmount"; Descending = $true }); styles = @($stylePayload) }
+$targetExists = $false
+if ($styles2026.Count -gt 0) {
+  $targetExists = @($styles2026[0].weekly | Where-Object { $_.label -eq $targetWeekLabel }).Count -gt 0
+}
+$dataWeekLabel = if ($targetExists) { $targetWeekLabel } else { $latestLabel }
+$payload = [ordered]@{ generatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); targetWeekLabel = $targetWeekLabel; dataWeekLabel = $dataWeekLabel; latestWeek = $dataWeekLabel; latestWeekLabel = $dataWeekLabel; sourceDir = $sourceDir; sourceWorkbook = $weeklyWorkbookPath; skuWorkbook = $skuWorkbookPath; costWorkbook = $costWorkbookPath; progressMap = $progressMapPath; stats = [ordered]@{ productionStyles = $styles2026.Count; joinedStyles = $styles2026.Count; priorStyles = $styles2025.Count; progressMappedStyles = $progressMap.Count; skuStyles = $skuByStyle.Count; costStyles = $costByStyle.Count; recommendedStyles = $recommendedStyleSet.Count; recommendationRows = $recommendations.Count }; recommendations = @($recommendations | Sort-Object weekOffset, @{ Expression = "neededQty"; Descending = $true }); summary = @($summaryRows | Sort-Object @{ Expression = "orderAmount"; Descending = $true }); styles = @($stylePayload) }
 
 $json = $payload | ConvertTo-Json -Depth 14 -Compress
 Set-Content -LiteralPath $outPath -Value "window.REORDER_DATA = $json;" -Encoding UTF8
 Write-Host "Generated $outPath"
-Write-Host "2026Styles=$($styles2026.Count) priorStyles=$($styles2025.Count) recommendedStyles=$($payload.stats.recommendedStyles) recommendationRows=$($payload.stats.recommendationRows) latest=$latestLabel"
+Write-Host "2026Styles=$($styles2026.Count) priorStyles=$($styles2025.Count) recommendedStyles=$($payload.stats.recommendedStyles) recommendationRows=$($payload.stats.recommendationRows) target=$targetWeekLabel dataWeek=$dataWeekLabel"

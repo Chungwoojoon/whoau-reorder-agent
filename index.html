@@ -3,116 +3,92 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>후아유 리오더 에이전트</title>
+    <title>WHO.A.U 주판량 Top 10</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="dashboard">
-      <header class="hero">
+      <nav class="metric-switcher" id="metricSwitcher" aria-label="순위 기준">
+        <button class="active" type="button" data-metric="weeklyQty">주판량</button>
+        <button type="button" data-metric="weeklyAmount">주판액</button>
+        <button type="button" data-metric="weeklyRate">주판율</button>
+        <button type="button" data-metric="normalQty">정판량</button>
+        <button type="button" data-metric="normalAmount">정판액</button>
+        <button type="button" data-metric="normalRate">정판율</button>
+      </nav>
+
+      <header class="topbar">
         <div>
-          <p class="eyebrow">WHO.A.U DASHBOARD</p>
-          <h1>후아유 자동 <span>리오더</span> 시스템</h1>
-          <p class="hero-copy">2026 신상품 판매 흐름, 전년 유사 스타일, 정상판매율, 컬러·사이즈 소진을 함께 반영합니다.</p>
+          <p class="eyebrow">WHO.A.U WEEKLY SALES</p>
+          <h1 id="pageTitle">26년도 제품 주판량 Top 10</h1>
+          <p class="subtitle" id="pageSubtitle">전 주 월요일부터 일요일까지 판매 수량 기준으로 전체와 아이템별 순위를 확인합니다.</p>
         </div>
-        <div class="hero-actions">
-          <div class="discount-actions" aria-label="할인 일정 관리">
-            <button id="openDiscountPlan" type="button">행사 등록</button>
-            <button id="openDiscountList" type="button">할인 확인</button>
-            <button id="openDiscountCancel" type="button">할인 취소</button>
-          </div>
-          <span id="generatedAt">실시간 샘플 데이터</span>
-          <button id="resetFilters" type="button">필터 초기화</button>
+        <div class="sync-card">
+          <span>업데이트 기준</span>
+          <strong id="latestWeek">-</strong>
+          <small id="generatedAt">-</small>
         </div>
       </header>
 
-      <section class="kpi-grid" aria-label="리오더 주요 지표">
-        <article class="kpi-card">
-          <p>리오더 스타일 수</p>
-          <strong id="kpiStyles">-</strong>
+      <section class="summary-grid" aria-label="요약 지표">
+        <article>
+          <span>26년도 스타일</span>
+          <strong id="styleCount">-</strong>
         </article>
-        <article class="kpi-card">
-          <p>W+0 발주량</p>
-          <strong id="kpiW0">-</strong>
+        <article>
+          <span id="metricTotalLabel">주판량 합계</span>
+          <strong id="metricTotal">-</strong>
         </article>
-        <article class="kpi-card">
-          <p>5주 발주량</p>
-          <strong id="kpiFiveWeeks">-</strong>
+        <article>
+          <span>분류 아이템</span>
+          <strong id="categoryCount">-</strong>
         </article>
-        <article class="kpi-card">
-          <p>리오더 환기율</p>
-          <strong class="accent" id="kpiRate">-</strong>
-        </article>
-        <article class="kpi-card portfolio">
-          <p>생산지 포트폴리오</p>
-          <div class="progress"><span id="portfolioBar"></span></div>
-          <small id="portfolioText">추천 스타일 기준</small>
+        <article>
+          <span>다음 자동 업데이트</span>
+          <strong id="nextRun">월 08:00</strong>
         </article>
       </section>
 
       <section class="workbench">
-        <div class="tabs">
-          <button class="active" type="button">상세 내역</button>
-          <button type="button">주차별 상세 수량</button>
-          <button type="button">리오더 확정 <span id="confirmCount">0</span></button>
-          <button type="button">조정 요청 <span>0</span></button>
+        <div class="controls">
+          <div class="tabs" id="categoryTabs" role="tablist" aria-label="아이템 필터"></div>
+          <label class="search-box">
+            <span>검색</span>
+            <input id="searchInput" type="search" placeholder="스타일코드 또는 상품명" />
+          </label>
         </div>
 
-        <div class="toolbar">
-          <div class="filters">
-            <select id="seasonFilter" aria-label="시즌 필터"></select>
-            <select id="categoryFilter" aria-label="복종 필터"></select>
-            <select id="weekFilter" aria-label="주차 필터"></select>
+        <section class="leaderboard" aria-labelledby="leaderboardTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">TOP 10</p>
+              <h2 id="leaderboardTitle">전체 Top 10</h2>
+            </div>
+            <p id="resultMeta">-</p>
           </div>
-          <div class="right-tools">
-            <span id="rowCount">-</span>
-            <button type="button" id="addStyle">+ 스타일 추가</button>
-            <button type="button" id="downloadCsv">엑셀 다운로드</button>
-            <input id="searchInput" type="search" placeholder="아이템 또는 스타일코드 검색" />
-          </div>
-        </div>
+          <div id="topList" class="rank-list"></div>
+        </section>
 
-        <section class="week-board" id="weekBoard" aria-label="주차별 리오더 요약"></section>
-
-        <section class="detail-panel">
-          <div class="detail-head">
-            <h2>Agent 상세 내역</h2>
-            <p>기준정보 / 성과 / 리오더</p>
+        <section class="category-board" aria-labelledby="categoryBoardTitle">
+          <div class="section-head compact">
+            <div>
+              <p class="eyebrow">ITEM SNAPSHOT</p>
+              <h2 id="categoryBoardTitle">아이템별 1위</h2>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>연도</th>
-                  <th>시즌</th>
-                  <th>복종</th>
-                  <th>사진</th>
-                  <th>스타일코드</th>
-                  <th>스타일명</th>
-                  <th class="num">입고</th>
-                  <th class="num">판매량</th>
-                  <th class="num">정상판매율</th>
-                  <th class="num">주판량</th>
-                  <th class="num">환기율</th>
-                  <th>전년 유사</th>
-                  <th class="num">현재 재고</th>
-                  <th class="num">W+0</th>
-                  <th class="num">5주 합계</th>
-                  <th class="num">예상판매</th>
-                  <th>리오더</th>
-                </tr>
-              </thead>
-              <tbody id="detailBody"></tbody>
-            </table>
-          </div>
+          <div id="categoryCards" class="category-grid"></div>
         </section>
       </section>
     </main>
 
-    <div class="modal-backdrop" id="styleModal" hidden>
-      <section class="style-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-backdrop" id="detailModal" hidden>
+      <section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
         <header class="modal-head">
-          <h2 id="modalTitle">Style detail</h2>
-          <button class="modal-close" id="modalClose" type="button" aria-label="Close">×</button>
+          <div>
+            <p class="eyebrow">STYLE DETAIL</p>
+            <h2 id="detailTitle">상품 상세</h2>
+          </div>
+          <button class="modal-close" id="modalClose" type="button" aria-label="닫기">×</button>
         </header>
         <div class="modal-body" id="modalBody"></div>
       </section>

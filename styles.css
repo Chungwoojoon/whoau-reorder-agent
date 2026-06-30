@@ -483,6 +483,28 @@ h2 {
   font-size: 20px;
 }
 
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-secondary {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--navy);
+  background: var(--surface-2);
+  font-weight: 900;
+}
+
+.modal-secondary:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  opacity: 0.65;
+}
+
 .modal-close {
   display: grid;
   place-items: center;
@@ -500,6 +522,102 @@ h2 {
   max-height: calc(min(880px, 100vh - 28px) - 76px);
   overflow: auto;
   padding: 18px;
+}
+
+.modal-backdrop.nested {
+  z-index: 80;
+  background: rgba(17, 32, 47, 0.38);
+}
+
+.co-modal {
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(720px, calc(100vh - 28px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(17, 32, 47, 0.28);
+}
+
+.co-body {
+  max-height: calc(min(720px, 100vh - 28px) - 76px);
+  overflow: auto;
+  padding: 18px;
+}
+
+.co-week {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.co-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.co-row {
+  display: grid;
+  grid-template-columns: 44px 72px minmax(0, 1fr) 96px;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.co-thumb {
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.co-thumb.fallback {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.co-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.co-copy span,
+.co-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.co-copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.co-qty {
+  text-align: right;
+}
+
+.co-qty strong {
+  display: block;
+  color: var(--navy);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.co-qty span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .modal-layout {

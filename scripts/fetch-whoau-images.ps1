@@ -68,6 +68,15 @@ foreach ($group in $itemGroups) {
   }
 }
 
+foreach ($style in @($data.styles)) {
+  foreach ($coStyle in @($style.coPurchases)) {
+    $code = [string]$coStyle.styleCode
+    if ($code -and -not $needed.Contains($code)) {
+      $needed[$code] = $true
+    }
+  }
+}
+
 $styles = @($needed.Keys)
 $map = [ordered]@{}
 

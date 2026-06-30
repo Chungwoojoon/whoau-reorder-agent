@@ -19,6 +19,7 @@ const state = {
   selectedCategory: "all",
   metric: "weeklyQty",
   query: "",
+  detailStyleCode: "",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -416,6 +417,53 @@ function channelRows(channels, totalQty) {
   }).join("");
 }
 
+function coPurchaseImage(styleCode, styleName) {
+  const image = imageMap[styleCode];
+  if (!image?.imageUrl) {
+    return `<div class="co-thumb fallback">${escapeHtml(itemCode(styleCode))}</div>`;
+  }
+  return `<img class="co-thumb" src="${image.imageUrl}" alt="${escapeHtml(styleName || styleCode)}" loading="lazy" referrerpolicy="no-referrer" />`;
+}
+
+function openCoPurchaseModal(styleCode = state.detailStyleCode) {
+  const style = byStyle.get(styleCode);
+  if (!style) return;
+  const modal = document.getElementById("coPurchaseModal");
+  const body = document.getElementById("coPurchaseBody");
+  const items = style.coPurchases || [];
+  document.getElementById("coPurchaseTitle").textContent = `${styleCode} 같이 팔린 스타일 TOP 5`;
+
+  if (!items.length) {
+    body.innerHTML = `<div class="empty">이번 주 같은 주문번호에서 함께 팔린 스타일 데이터가 없습니다.</div>`;
+  } else {
+    body.innerHTML = `
+      <p class="co-week">기준 주차 ${escapeHtml(style.coPurchaseWeekLabel || targetWeekLabel())} · 온라인/옴니 주문번호 기준</p>
+      <div class="co-list">
+        ${items.slice(0, 5).map((item, index) => `<article class="co-row">
+          <div class="rank">${index + 1}</div>
+          ${coPurchaseImage(item.styleCode, item.styleName)}
+          <div class="co-copy">
+            <span>${escapeHtml(item.styleCode)}</span>
+            <strong>${escapeHtml(item.styleName || item.styleCode)}</strong>
+            <small>같은 주문 ${numberFormat.format(item.togetherOrders || 0)}건</small>
+          </div>
+          <div class="co-qty">
+            <strong>${numberFormat.format(item.togetherQty || 0)}</strong>
+            <span>pcs</span>
+          </div>
+        </article>`).join("")}
+      </div>`;
+  }
+
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeCoPurchaseModal() {
+  document.getElementById("coPurchaseModal").hidden = true;
+  if (document.getElementById("detailModal").hidden) document.body.classList.remove("modal-open");
+}
+
 function openDetailModal(styleCode) {
   const row = baseRows().find((item) => item.styleCode === styleCode);
   const style = byStyle.get(styleCode) || row;
@@ -437,6 +485,10 @@ function openDetailModal(styleCode) {
   const inboundAmount = inboundQty * price;
   const channels = channelBreakdown(weekly, weeklyQty);
   const topStore = weekly.topStore || { name: "-", qty: 0, channel: "offline" };
+  state.detailStyleCode = styleCode;
+  const coButton = document.getElementById("coPurchaseButton");
+  coButton.disabled = !(style.coPurchases || []).length;
+  coButton.textContent = (style.coPurchases || []).length ? "같이 팔린 스타일 TOP 5" : "같이 팔린 스타일 없음";
 
   document.getElementById("detailTitle").textContent = `${styleCode} · ${style.styleName || style.productName || ""}`;
   body.innerHTML = `<div class="modal-layout">
@@ -482,6 +534,8 @@ function openDetailModal(styleCode) {
 
 function closeDetailModal() {
   document.getElementById("detailModal").hidden = true;
+  document.getElementById("coPurchaseModal").hidden = true;
+  state.detailStyleCode = "";
   document.body.classList.remove("modal-open");
 }
 
@@ -545,11 +599,18 @@ document.getElementById("searchInput").addEventListener("input", (event) => {
 });
 
 document.getElementById("modalClose").addEventListener("click", closeDetailModal);
+document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
+document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
 document.getElementById("detailModal").addEventListener("click", (event) => {
   if (event.target.id === "detailModal") closeDetailModal();
 });
+document.getElementById("coPurchaseModal").addEventListener("click", (event) => {
+  if (event.target.id === "coPurchaseModal") closeCoPurchaseModal();
+});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !document.getElementById("detailModal").hidden) closeDetailModal();
+  if (event.key !== "Escape") return;
+  if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
+  else if (!document.getElementById("detailModal").hidden) closeDetailModal();
 });
 
 render();

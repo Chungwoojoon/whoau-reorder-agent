@@ -246,6 +246,7 @@ await client.connect();
 let rows;
 let styleNameRows = [];
 let inventoryRows = [];
+let coPurchaseRows = [];
 try {
   const result = await client.query(sql, [yearStart, targetWeek.endYmd]);
   rows = result.rows;
@@ -308,6 +309,46 @@ try {
       LEFT JOIN stock s ON m.material = s.material
     `, [inventoryStart, targetWeek.endYmd, materials]);
     inventoryRows = inventoryResult.rows;
+    const coPurchaseResult = await client.query(`
+      WITH order_lines AS (
+        SELECT
+          weborderno,
+          stylecode AS material,
+          SUM(COALESCE(qty, 0)) AS qty
+        FROM ods.omni_spprd_mart
+        WHERE calday BETWEEN $1 AND $2
+          AND weborderno IS NOT NULL
+          AND weborderno <> ''
+          AND stylecode LIKE 'WH%'
+          AND stylecode = ANY($3)
+          AND SUBSTRING(stylecode FROM 6 FOR 1) <> 'B'
+        GROUP BY weborderno, stylecode
+      ),
+      pairs AS (
+        SELECT
+          a.material AS material,
+          b.material AS related_material,
+          COUNT(DISTINCT a.weborderno) AS together_orders,
+          SUM(b.qty) AS together_qty
+        FROM order_lines a
+        JOIN order_lines b ON a.weborderno = b.weborderno AND a.material <> b.material
+        GROUP BY a.material, b.material
+      ),
+      ranked AS (
+        SELECT
+          *,
+          ROW_NUMBER() OVER (
+            PARTITION BY material
+            ORDER BY together_orders DESC, together_qty DESC, related_material
+          ) AS rank_no
+        FROM pairs
+      )
+      SELECT material, related_material, together_orders, together_qty, rank_no
+      FROM ranked
+      WHERE rank_no <= 5
+      ORDER BY material, rank_no
+    `, [targetWeek.startYmd, targetWeek.endYmd, materials]);
+    coPurchaseRows = coPurchaseResult.rows;
   }
 } finally {
   await client.end();
@@ -315,6 +356,18 @@ try {
 
 const styleNameMap = new Map(styleNameRows.map((row) => [row.material, row.material_names]));
 const inventoryMap = new Map(inventoryRows.map((row) => [row.material, row]));
+const coPurchaseMap = new Map();
+for (const row of coPurchaseRows) {
+  const material = row.material;
+  if (!coPurchaseMap.has(material)) coPurchaseMap.set(material, []);
+  coPurchaseMap.get(material).push({
+    rank: Number(row.rank_no || 0),
+    styleCode: row.related_material,
+    styleName: bestStyleName(styleNameMap.get(row.related_material), row.related_material),
+    togetherQty: Math.round(toNumber(row.together_qty)),
+    togetherOrders: Math.round(toNumber(row.together_orders)),
+  });
+}
 const grouped = new Map();
 for (const row of rows) {
   const material = row.material;
@@ -447,6 +500,8 @@ for (const style of grouped.values()) {
     forecast: [],
     priorSeries: [],
     similarStyle: null,
+    coPurchaseWeekLabel: targetWeek.label,
+    coPurchases: coPurchaseMap.get(style.styleCode) || [],
     colors: [],
     skuPlan: [],
   });

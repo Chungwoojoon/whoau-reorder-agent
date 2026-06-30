@@ -75,6 +75,20 @@ function cleanStyleName(value, fallback = "") {
     .trim();
 }
 
+function bestStyleName(value, fallback = "") {
+  const names = String(value || "")
+    .split("|||")
+    .map((name) => cleanStyleName(name))
+    .filter(Boolean);
+  if (!names.length) return cleanStyleName(fallback, fallback);
+  return [...new Set(names)]
+    .sort((a, b) => {
+      const aPenalty = /[(\s]$/.test(a) ? 100 : 0;
+      const bPenalty = /[(\s]$/.test(b) ? 100 : 0;
+      return (b.length - bPenalty) - (a.length - aPenalty) || b.length - a.length || a.localeCompare(b);
+    })[0];
+}
+
 function itemCode(styleCode) {
   return String(styleCode || "").slice(2, 4).toUpperCase();
 }
@@ -224,20 +238,34 @@ ORDER BY d.material, d.calday
 const client = getClient();
 await client.connect();
 let rows;
+let styleNameRows = [];
 try {
   const result = await client.query(sql, [yearStart, targetWeek.endYmd]);
   rows = result.rows;
+  const materials = [...new Set(rows.map((row) => row.material).filter(Boolean))];
+  if (materials.length) {
+    const namesResult = await client.query(`
+      SELECT
+        LEFT(material, 10) AS material,
+        STRING_AGG(DISTINCT material_nm, '|||') AS material_names
+      FROM ods.fpw_tmaterial
+      WHERE LEFT(material, 10) = ANY($1)
+      GROUP BY LEFT(material, 10)
+    `, [materials]);
+    styleNameRows = namesResult.rows;
+  }
 } finally {
   await client.end();
 }
 
+const styleNameMap = new Map(styleNameRows.map((row) => [row.material, row.material_names]));
 const grouped = new Map();
 for (const row of rows) {
   const material = row.material;
   if (!grouped.has(material)) {
     grouped.set(material, {
       styleCode: material,
-      styleName: cleanStyleName(row.material_nm, material),
+      styleName: bestStyleName(styleNameMap.get(material) || row.material_nm, material),
       category: row.category_nm || classifyCategory(material),
       price: toNumber(row.price),
       days: [],

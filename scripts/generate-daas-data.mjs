@@ -167,7 +167,7 @@ loadEnv(envPath);
 
 const targetWeek = previousCompleteWeek();
 const yearStart = `${targetWeek.end.getFullYear()}0101`;
-const inventoryStart = `${targetWeek.end.getFullYear() - 1}0101`;
+const cumulativeStart = `${targetWeek.end.getFullYear() - 1}1101`;
 const coPurchaseStart = new Date(targetWeek.end);
 coPurchaseStart.setDate(targetWeek.end.getDate() - 27);
 const coPurchaseLabel = labelFromDates(coPurchaseStart, targetWeek.end);
@@ -271,11 +271,13 @@ try {
       WITH filtered AS (
         SELECT
           LEFT(material, 10) AS material,
-          calday,
           COALESCE(ipgo_qty, 0) AS inbound_qty,
           COALESCE(ordqty, 0) AS order_qty,
           COALESCE(ordamt, 0) AS order_amt,
-          COALESCE(hstoc_qty, 0) + COALESCE(sstoc_tmp_qty, 0) AS stock_qty
+          COALESCE(sale, 0) AS sale_qty,
+          COALESCE(saleamt, 0) AS sale_amt,
+          COALESCE(salejung, 0) AS normal_qty,
+          COALESCE(salejungamt, 0) AS normal_amt
         FROM fpw.total_mart
         WHERE calday BETWEEN $1 AND $2
           AND LENGTH(calday) = 8
@@ -284,37 +286,20 @@ try {
           AND LEFT(material, 10) = ANY($3)
           AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
           AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
-          AND COALESCE(plant, '') <> '1118'
-      ),
-      latest AS (
-        SELECT material, MAX(calday) AS latest_calday
-        FROM filtered
-        GROUP BY material
-      ),
-      movement AS (
-        SELECT
-          material,
-          SUM(inbound_qty) AS inbound_qty,
-          SUM(order_qty) AS order_qty,
-          SUM(order_amt) AS order_amt
-        FROM filtered
-        GROUP BY material
-      ),
-      stock AS (
-        SELECT f.material, SUM(f.stock_qty) AS stock_qty
-        FROM filtered f
-        JOIN latest l ON f.material = l.material AND f.calday = l.latest_calday
-        GROUP BY f.material
       )
       SELECT
-        m.material,
-        COALESCE(m.inbound_qty, 0) AS inbound_qty,
-        COALESCE(m.order_qty, 0) AS order_qty,
-        COALESCE(m.order_amt, 0) AS order_amt,
-        COALESCE(s.stock_qty, 0) AS stock_qty
-      FROM movement m
-      LEFT JOIN stock s ON m.material = s.material
-    `, [inventoryStart, targetWeek.endYmd, materials]);
+        material,
+        COALESCE(SUM(inbound_qty), 0) AS inbound_qty,
+        COALESCE(SUM(order_qty), 0) AS order_qty,
+        COALESCE(SUM(order_amt), 0) AS order_amt,
+        COALESCE(SUM(sale_qty), 0) AS total_qty,
+        COALESCE(SUM(sale_amt), 0) AS total_sales_amount,
+        COALESCE(SUM(normal_qty), 0) AS total_normal_qty,
+        COALESCE(SUM(normal_amt), 0) AS total_normal_amount,
+        COALESCE(SUM(inbound_qty) - SUM(sale_qty), 0) AS stock_qty
+      FROM filtered
+      GROUP BY material
+    `, [cumulativeStart, targetWeek.endYmd, materials]);
     inventoryRows = inventoryResult.rows;
     const coPurchaseResult = await client.query(`
       SELECT weborderno, stylecode AS material, SUM(COALESCE(qty, 0)) AS qty
@@ -397,10 +382,6 @@ const styles = [];
 let latestAvailableDate = "";
 for (const style of grouped.values()) {
   const weeklyMap = new Map();
-  let totalQty = 0;
-  let totalNormalQty = 0;
-  let totalSalesAmount = 0;
-  let totalNormalAmount = 0;
   const totalChannels = emptyChannels();
 
   for (const day of style.days) {
@@ -448,18 +429,18 @@ for (const style of grouped.values()) {
       store.qty += saleQty;
       store.amount += saleAmount;
     }
-
-    totalQty += saleQty;
-    totalNormalQty += toNumber(day.normal_qty);
-    totalSalesAmount += saleAmount;
-    totalNormalAmount += toNumber(day.normal_amt);
   }
 
   const inventory = inventoryMap.get(style.styleCode) || {};
   const inboundQty = toNumber(inventory.inbound_qty);
   const orderQty = toNumber(inventory.order_qty);
   const orderAmount = toNumber(inventory.order_amt);
+  const cumulativeQty = toNumber(inventory.total_qty);
+  const cumulativeNormalQty = toNumber(inventory.total_normal_qty);
+  const cumulativeSalesAmount = toNumber(inventory.total_sales_amount);
+  const cumulativeNormalAmount = toNumber(inventory.total_normal_amount);
   const stock = toNumber(inventory.stock_qty);
+  const inboundAmount = inboundQty * style.price;
 
   const weekly = [...weeklyMap.values()].map((week, index) => ({
     index,
@@ -487,15 +468,15 @@ for (const style of grouped.values()) {
     inboundQty: Math.round(inboundQty),
     orderQty: Math.round(orderQty),
     orderAmount: Math.round(orderAmount),
-    totalQty: Math.round(totalQty),
-    totalNormalQty: Math.round(totalNormalQty),
-    totalSalesAmount: Math.round(totalSalesAmount),
-    totalNormalAmount: Math.round(totalNormalAmount),
+    totalQty: Math.round(cumulativeQty),
+    totalNormalQty: Math.round(cumulativeNormalQty),
+    totalSalesAmount: Math.round(cumulativeSalesAmount),
+    totalNormalAmount: Math.round(cumulativeNormalAmount),
     channelSales: Object.fromEntries(Object.entries(totalChannels).map(([key, value]) => [key, {
       qty: Math.round(value.qty),
       amount: Math.round(value.amount),
     }])),
-    normalRate: inboundQty > 0 ? Math.round((totalNormalQty / inboundQty) * 10000) / 10000 : 0,
+    normalRate: inboundAmount > 0 ? Math.round((cumulativeNormalAmount / inboundAmount) * 10000) / 10000 : 0,
     costRate: 0,
     stock: Math.round(stock),
     reorderTotal: 0,

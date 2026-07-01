@@ -192,6 +192,7 @@ WITH plant_daily AS (
     AND t.calday ~ '^[0-9]{8}$'
     AND t.material LIKE 'WH%'
     AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
+    AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
     AND COALESCE(t.plant, '') <> '1118'
   GROUP BY LEFT(t.material, 10), t.calday, t.plant
 ),
@@ -206,6 +207,7 @@ tmaterial AS (
   FROM ods.fpw_tmaterial
   WHERE material LIKE 'WH%'
     AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+    AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
   GROUP BY LEFT(material, 10)
 ),
 pmaterial AS (
@@ -213,6 +215,7 @@ pmaterial AS (
   FROM ods.fpw_pmaterial
   WHERE material LIKE 'WH%'
     AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+    AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
   GROUP BY LEFT(material, 10)
 ),
 tplant AS (
@@ -280,6 +283,7 @@ try {
           AND material LIKE 'WH%'
           AND LEFT(material, 10) = ANY($3)
           AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+          AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
           AND COALESCE(plant, '') <> '1118'
       ),
       latest AS (
@@ -320,6 +324,7 @@ try {
         AND weborderno <> ''
         AND stylecode LIKE 'WH%'
         AND SUBSTRING(stylecode FROM 6 FOR 1) <> 'B'
+        AND SUBSTRING(stylecode FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
       GROUP BY weborderno, stylecode
     `, [ymd(coPurchaseStart), targetWeek.endYmd]);
     coPurchaseRows = coPurchaseResult.rows;

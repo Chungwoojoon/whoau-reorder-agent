@@ -207,7 +207,8 @@ function previousWeeklyRow(style) {
 function isSeason26(style) {
   const code = String(style.styleCode || "").toUpperCase();
   const domesticStyle = code.charAt(5) !== "B";
-  return domesticStyle && (String(style.season || style.year || "").includes("26") || code.startsWith("WH"));
+  const activeSeason = ["G1", "G2", "G3", "G4"].includes(seasonCode(code));
+  return domesticStyle && activeSeason && code.startsWith("WH");
 }
 
 function rowMeta(row) {

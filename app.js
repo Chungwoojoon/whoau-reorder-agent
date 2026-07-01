@@ -600,6 +600,21 @@ function coPurchaseImage(styleCode, styleName) {
   return `<img class="co-thumb" src="${image.imageUrl}" alt="${escapeHtml(styleName || styleCode)}" loading="lazy" referrerpolicy="no-referrer" />`;
 }
 
+function productUrlFor(styleCode) {
+  return imageMap[styleCode]?.productUrl || "";
+}
+
+function productNoFromUrl(url) {
+  const match = String(url || "").match(/\/(\d+)\/category\//);
+  return match ? match[1] : "";
+}
+
+function reviewUrlFor(styleCode) {
+  const productUrl = productUrlFor(styleCode);
+  if (!productUrl) return "";
+  return `${productUrl.replace(/#.*$/, "")}#review`;
+}
+
 function openCoPurchaseModal(styleCode = state.detailStyleCode) {
   const style = byStyle.get(styleCode);
   if (!style) return;
@@ -636,7 +651,45 @@ function openCoPurchaseModal(styleCode = state.detailStyleCode) {
 
 function closeCoPurchaseModal() {
   document.getElementById("coPurchaseModal").hidden = true;
-  if (document.getElementById("detailModal").hidden) document.body.classList.remove("modal-open");
+  if (document.getElementById("detailModal").hidden && document.getElementById("reviewModal").hidden) document.body.classList.remove("modal-open");
+}
+
+function openReviewModal(styleCode = state.detailStyleCode) {
+  const style = byStyle.get(styleCode);
+  if (!style) return;
+  const modal = document.getElementById("reviewModal");
+  const body = document.getElementById("reviewBody");
+  const productUrl = productUrlFor(styleCode);
+  const reviewUrl = reviewUrlFor(styleCode);
+  const productNo = productNoFromUrl(productUrl);
+
+  document.getElementById("reviewTitle").textContent = `${styleCode} 리뷰`;
+
+  if (!reviewUrl) {
+    body.innerHTML = `<div class="empty">후아유 홈페이지 상품 URL을 찾지 못했습니다.</div>`;
+  } else {
+    body.innerHTML = `
+      <div class="review-summary">
+        <div>
+          <span>스타일</span>
+          <strong>${escapeHtml(style.styleName || style.productName || styleCode)}</strong>
+          <small>${escapeHtml(styleCode)}${productNo ? ` · 상품번호 ${escapeHtml(productNo)}` : ""}</small>
+        </div>
+        <a class="modal-secondary review-link" href="${escapeHtml(reviewUrl)}" target="_blank" rel="noreferrer">후아유에서 보기</a>
+      </div>
+      <div class="review-frame-wrap">
+        <iframe class="review-frame" src="${escapeHtml(reviewUrl)}" title="${escapeHtml(styleCode)} 후아유 리뷰" loading="lazy"></iframe>
+      </div>`;
+  }
+
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeReviewModal() {
+  document.getElementById("reviewModal").hidden = true;
+  document.getElementById("reviewBody").innerHTML = "";
+  if (document.getElementById("detailModal").hidden && document.getElementById("coPurchaseModal").hidden) document.body.classList.remove("modal-open");
 }
 
 function openDetailModal(styleCode) {
@@ -679,6 +732,7 @@ function openDetailModal(styleCode) {
         <span>${escapeHtml(styleCode)}</span>
         <h3>${escapeHtml(style.styleName || style.productName || "-")}</h3>
         <p>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)} · ${escapeHtml(style.categoryMid || style.categoryLarge || "-")}</p>
+        <button class="modal-secondary product-review-button" type="button" data-review-style="${escapeHtml(styleCode)}">리뷰 보기</button>
       </div>
     </aside>
     <section class="modal-content">
@@ -714,6 +768,8 @@ function openDetailModal(styleCode) {
 function closeDetailModal() {
   document.getElementById("detailModal").hidden = true;
   document.getElementById("coPurchaseModal").hidden = true;
+  document.getElementById("reviewModal").hidden = true;
+  document.getElementById("reviewBody").innerHTML = "";
   state.detailStyleCode = "";
   document.body.classList.remove("modal-open");
 }
@@ -806,15 +862,25 @@ document.getElementById("searchInput").addEventListener("input", (event) => {
 document.getElementById("modalClose").addEventListener("click", closeDetailModal);
 document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
 document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
+document.getElementById("reviewClose").addEventListener("click", closeReviewModal);
+document.getElementById("modalBody").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-review-style]");
+  if (!button) return;
+  openReviewModal(button.dataset.reviewStyle);
+});
 document.getElementById("detailModal").addEventListener("click", (event) => {
   if (event.target.id === "detailModal") closeDetailModal();
 });
 document.getElementById("coPurchaseModal").addEventListener("click", (event) => {
   if (event.target.id === "coPurchaseModal") closeCoPurchaseModal();
 });
+document.getElementById("reviewModal").addEventListener("click", (event) => {
+  if (event.target.id === "reviewModal") closeReviewModal();
+});
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
+  if (!document.getElementById("reviewModal").hidden) closeReviewModal();
+  else if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
   else if (!document.getElementById("detailModal").hidden) closeDetailModal();
 });
 

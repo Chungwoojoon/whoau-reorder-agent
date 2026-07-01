@@ -159,6 +159,13 @@ function latestWeeklyRow(style) {
   return latestRow || weekly.at(-1) || {};
 }
 
+function previousWeeklyRow(style) {
+  const weekly = style.weekly || [];
+  const current = latestWeeklyRow(style);
+  const index = weekly.findIndex((week) => week.label === current.label);
+  return index > 0 ? weekly[index - 1] : null;
+}
+
 function isSeason26(style) {
   const code = String(style.styleCode || "").toUpperCase();
   const domesticStyle = code.charAt(5) !== "B";
@@ -189,6 +196,7 @@ function baseRows() {
     .filter((style) => isSeason26(style))
     .map((style) => {
       const weekly = latestWeeklyRow(style);
+      const previousWeekly = previousWeeklyRow(style);
       const group = categoryFor(style.styleCode);
       return {
         ...style,
@@ -202,9 +210,28 @@ function baseRows() {
         normalRate: safeDivide(Number(weekly.normalQty || 0), Number(style.inboundQty || 0)),
         weeklySalesAmount: Number(weekly.salesAmount || 0),
         normalSalesAmount: Number(weekly.normalAmount || 0),
+        previousWeeklyQty: Number(previousWeekly?.actualQty || 0),
+        previousNormalQty: Number(previousWeekly?.normalQty || 0),
+        previousWeeklyRate: safeDivide(Number(previousWeekly?.actualQty || 0), Number(style.inboundQty || 0)),
+        previousNormalRate: safeDivide(Number(previousWeekly?.normalQty || 0), Number(style.inboundQty || 0)),
+        previousWeeklySalesAmount: Number(previousWeekly?.salesAmount || 0),
+        previousNormalSalesAmount: Number(previousWeekly?.normalAmount || 0),
         weekLabel: weekly.label || sourceData.latestWeekLabel || "-",
       };
     });
+}
+
+function metricValueForRank(row, metricKey = state.metric, previous = false) {
+  if (!previous) return activeMetric().value(row);
+  const values = {
+    weeklyQty: row.previousWeeklyQty,
+    weeklyAmount: row.previousWeeklySalesAmount,
+    weeklyRate: row.previousWeeklyRate,
+    normalQty: row.previousNormalQty,
+    normalAmount: row.previousNormalSalesAmount,
+    normalRate: row.previousNormalRate,
+  };
+  return Number(values[metricKey] || 0);
 }
 
 function filteredRows() {
@@ -218,6 +245,24 @@ function filteredRows() {
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
     })
     .sort((a, b) => metric.value(b) - metric.value(a) || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode)));
+}
+
+function previousRankMap(rows) {
+  const metricKey = state.metric;
+  const ranked = [...rows].sort((a, b) => {
+    const diff = metricValueForRank(b, metricKey, true) - metricValueForRank(a, metricKey, true);
+    return diff || b.previousWeeklyQty - a.previousWeeklyQty || String(a.styleCode).localeCompare(String(b.styleCode));
+  });
+  return new Map(ranked.map((row, index) => [row.styleCode, index + 1]));
+}
+
+function rankChangeBadge(row, currentRank, rankMap) {
+  const previousRank = rankMap.get(row.styleCode);
+  if (!previousRank) return `<span class="rank-change new">NEW</span>`;
+  const change = previousRank - currentRank;
+  if (change > 0) return `<span class="rank-change up" title="전전 주 ${previousRank}위">▲ ${change}</span>`;
+  if (change < 0) return `<span class="rank-change down" title="전전 주 ${previousRank}위">▼ ${Math.abs(change)}</span>`;
+  return `<span class="rank-change same" title="전전 주 ${previousRank}위">-</span>`;
 }
 
 function imageFor(row) {
@@ -256,6 +301,7 @@ function renderTopList() {
   const selected = ITEM_GROUPS.find((group) => group.id === state.selectedCategory) || ITEM_GROUPS[0];
   const metric = activeMetric();
   const topRows = rows.slice(0, 10);
+  const ranksBefore = previousRankMap(rows);
   document.getElementById("leaderboardTitle").textContent = `${selected.label} ${metric.label} Top 10`;
   document.getElementById("resultMeta").textContent = `${numberFormat.format(rows.length)}개 스타일 중 ${metric.label} 상위 ${numberFormat.format(topRows.length)}개`;
 
@@ -274,7 +320,10 @@ function renderTopList() {
       ${imageFor(row)}
       <div class="product">
         <div class="product-title">
-          <strong>${escapeHtml(row.styleName || row.productName || row.styleCode)}</strong>
+          <div class="title-with-change">
+            <strong>${escapeHtml(row.styleName || row.productName || row.styleCode)}</strong>
+            ${rankChangeBadge(row, index + 1, ranksBefore)}
+          </div>
           <span>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)}</span>
         </div>
         <div class="bar" aria-hidden="true"><span style="width:${percent}%"></span></div>

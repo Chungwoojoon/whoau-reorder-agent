@@ -338,11 +338,40 @@ h2 {
   gap: 12px;
 }
 
-.product-title strong {
+.title-with-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.product-title strong,
+.title-with-change strong {
   overflow: hidden;
   font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rank-change {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.rank-change.up {
+  color: #e1262f;
+}
+
+.rank-change.down {
+  color: #1f78d1;
+}
+
+.rank-change.same,
+.rank-change.new {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .product-title span,

@@ -1,5 +1,6 @@
 const sourceData = window.REORDER_DATA || { styles: [] };
 const imageMap = window.WHOAU_IMAGE_MAP?.images || {};
+const reviewMap = window.WHOAU_REVIEW_MAP?.reviews || {};
 
 const ITEM_GROUPS = [
   { id: "all", label: "전체", codes: null },
@@ -609,10 +610,35 @@ function productNoFromUrl(url) {
   return match ? match[1] : "";
 }
 
-function reviewUrlFor(styleCode) {
-  const productUrl = productUrlFor(styleCode);
-  if (!productUrl) return "";
-  return `${productUrl.replace(/#.*$/, "")}#review`;
+function reviewPercent(value, total) {
+  const denominator = Number(total || 0);
+  if (!denominator) return "0%";
+  return `${Math.round((Number(value || 0) / denominator) * 100)}%`;
+}
+
+function reviewKeywordChips(items, emptyText) {
+  if (!items?.length) return `<span class="review-empty-chip">${escapeHtml(emptyText)}</span>`;
+  return items.map((item) => `<span class="review-chip">${escapeHtml(item.label)} <b>${numberFormat.format(item.count)}</b></span>`).join("");
+}
+
+function reviewCardList(items, emptyText) {
+  if (!items?.length) return `<div class="empty compact">${escapeHtml(emptyText)}</div>`;
+  return items.map((review) => `<article class="review-card">
+    <div class="review-card-meta">
+      <span>${escapeHtml(review.author || "고객")}</span>
+      <span>${escapeHtml(review.date || "-")}</span>
+      ${review.score ? `<span>${"★".repeat(Math.max(1, Math.min(5, Number(review.score))))}</span>` : ""}
+    </div>
+    <p>${escapeHtml(review.message || "")}</p>
+  </article>`).join("");
+}
+
+function reviewStat(label, value, sub = "") {
+  return `<article>
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(value)}</strong>
+    ${sub ? `<small>${escapeHtml(sub)}</small>` : ""}
+  </article>`;
 }
 
 function openCoPurchaseModal(styleCode = state.detailStyleCode) {
@@ -660,25 +686,66 @@ function openReviewModal(styleCode = state.detailStyleCode) {
   const modal = document.getElementById("reviewModal");
   const body = document.getElementById("reviewBody");
   const productUrl = productUrlFor(styleCode);
-  const reviewUrl = reviewUrlFor(styleCode);
   const productNo = productNoFromUrl(productUrl);
+  const reviewData = reviewMap[styleCode];
+  const styleName = style.styleName || style.productName || reviewData?.styleName || styleCode;
+  const analyzed = Number(reviewData?.analyzed || 0);
+  const total = Number(reviewData?.total || 0);
+  const positive = Number(reviewData?.positiveCount || 0);
+  const negative = Number(reviewData?.negativeCount || 0);
+  const neutral = Number(reviewData?.neutralCount || 0);
 
-  document.getElementById("reviewTitle").textContent = `${styleCode} 리뷰`;
+  document.getElementById("reviewTitle").textContent = `${styleCode} 리뷰 분석`;
 
-  if (!reviewUrl) {
-    body.innerHTML = `<div class="empty">후아유 홈페이지 상품 URL을 찾지 못했습니다.</div>`;
+  if (!reviewData || (!total && !analyzed)) {
+    body.innerHTML = `
+      <div class="review-summary">
+        <div>
+          <span>스타일</span>
+          <strong>${escapeHtml(styleName)}</strong>
+          <small>${escapeHtml(styleCode)}${productNo ? ` · 상품번호 ${escapeHtml(productNo)}` : ""}</small>
+        </div>
+      </div>
+      <div class="empty">수집된 리뷰가 없습니다. 후아유 리뷰 API에서 이 스타일의 리뷰가 0건으로 내려온 상태입니다.</div>`;
   } else {
     body.innerHTML = `
       <div class="review-summary">
         <div>
           <span>스타일</span>
-          <strong>${escapeHtml(style.styleName || style.productName || styleCode)}</strong>
-          <small>${escapeHtml(styleCode)}${productNo ? ` · 상품번호 ${escapeHtml(productNo)}` : ""}</small>
+          <strong>${escapeHtml(styleName)}</strong>
+          <small>${escapeHtml(styleCode)}${productNo ? ` · 상품번호 ${escapeHtml(productNo)}` : ""} · ${escapeHtml(window.WHOAU_REVIEW_MAP?.generatedAt || "")} 수집</small>
         </div>
-        <a class="modal-secondary review-link" href="${escapeHtml(reviewUrl)}" target="_blank" rel="noreferrer">후아유에서 보기</a>
       </div>
-      <div class="review-frame-wrap">
-        <iframe class="review-frame" src="${escapeHtml(reviewUrl)}" title="${escapeHtml(styleCode)} 후아유 리뷰" loading="lazy"></iframe>
+      <div class="review-stats">
+        ${reviewStat("전체 리뷰", `${numberFormat.format(total)}건`, `${numberFormat.format(analyzed)}건 분석`)}
+        ${reviewStat("평균 평점", reviewData.averageScore ? `${Number(reviewData.averageScore).toFixed(1)}점` : "-", "5점 만점")}
+        ${reviewStat("긍정", `${numberFormat.format(positive)}건`, reviewPercent(positive, analyzed))}
+        ${reviewStat("부정", `${numberFormat.format(negative)}건`, reviewPercent(negative, analyzed))}
+        ${reviewStat("중립", `${numberFormat.format(neutral)}건`, reviewPercent(neutral, analyzed))}
+      </div>
+      <section class="review-insights">
+        <h3>많이 나온 반응</h3>
+        ${(reviewData.insights || []).map((text) => `<p>${escapeHtml(text)}</p>`).join("") || "<p>반복되는 리뷰 반응이 아직 충분하지 않습니다.</p>"}
+      </section>
+      <div class="review-keyword-grid">
+        <section>
+          <h3>긍정 키워드</h3>
+          <div class="review-chip-list">${reviewKeywordChips(reviewData.positiveKeywords || [], "긍정 키워드 없음")}</div>
+        </section>
+        <section>
+          <h3>부정 키워드</h3>
+          <div class="review-chip-list negative">${reviewKeywordChips(reviewData.negativeKeywords || [], "부정 키워드 없음")}</div>
+        </section>
+      </div>
+      <div class="review-columns">
+        <section>
+          <h3>긍정 대표 리뷰</h3>
+          ${reviewCardList(reviewData.positiveReviews || [], "긍정으로 분류된 대표 리뷰가 없습니다.")}
+        </section>
+        <section>
+          <h3>부정 대표 리뷰</h3>
+          ${reviewCardList(reviewData.negativeReviews || [], "부정으로 분류된 대표 리뷰가 없습니다.")}
+        </section>
       </div>`;
   }
 

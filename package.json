@@ -1,6 +1,7 @@
 {
   "scripts": {
     "generate:daas": "node scripts/generate-daas-data.mjs",
+    "generate:reviews": "node scripts/fetch-whoau-reviews.mjs",
     "start": "node server.mjs"
   },
   "dependencies": {

@@ -175,6 +175,68 @@ h2 {
   border-radius: 8px;
 }
 
+.filter-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f4ee;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.filter-row > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill-group button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #fff;
+  font-weight: 900;
+}
+
+.pill-group button.active {
+  border-color: var(--navy);
+  color: #fff;
+  background: var(--navy);
+}
+
+.pill-group em {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.pill-group button.active em {
+  color: var(--navy);
+  background: #fff;
+}
+
 .controls {
   display: flex;
   align-items: start;

@@ -15,8 +15,28 @@ const ITEM_GROUPS = [
   { id: "goods", label: "잡화", codes: ["AB", "AC", "AG", "AK", "AM", "AP", "AQ", "AR", "AW", "AY", "BG", "BM", "HM", "PG", "PP"] },
 ];
 
+const SEASON_FILTERS = [
+  { id: "all", label: "전체" },
+  { id: "G1", label: "G1" },
+  { id: "G2", label: "G2" },
+  { id: "G3", label: "G3" },
+  { id: "G4", label: "G4" },
+];
+
+const CHANNEL_FILTERS = [
+  { id: "all", label: "전체" },
+  { id: "offline", label: "오프라인" },
+  { id: "online", label: "온라인" },
+  { id: "buyer", label: "면세" },
+];
+
+const CHANNEL_METRICS = new Set(["weeklyQty", "weeklyAmount"]);
+const TOP_LIMIT = 20;
+
 const state = {
   selectedCategory: "all",
+  selectedSeason: "all",
+  selectedChannel: "all",
   metric: "weeklyQty",
   query: "",
   detailStyleCode: "",
@@ -41,18 +61,18 @@ const METRICS = {
     totalLabel: "주판량 합계",
     unit: "pcs",
     subtitle: "전 주 월요일부터 일요일까지 판매 수량 기준으로 전체와 아이템별 순위를 확인합니다.",
-    value: (row) => row.weeklyQty,
-    total: (rows) => rows.reduce((sum, row) => sum + row.weeklyQty, 0),
+    value: (row) => channelValue(row, "qty"),
+    total: (rows) => rows.reduce((sum, row) => sum + channelValue(row, "qty"), 0),
     format: (value) => numberFormat.format(Math.round(Number(value || 0))),
-    subText: (row) => moneyFormat.format(row.weeklySalesAmount || row.weeklyQty * Number(row.price || 0)),
+    subText: (row) => state.selectedChannel === "all" ? moneyFormat.format(row.weeklySalesAmount || row.weeklyQty * Number(row.price || 0)) : compactMoney(channelValue(row, "amount")),
   },
   weeklyAmount: {
     label: "주판액",
     totalLabel: "주판액 합계",
     unit: "",
     subtitle: "전 주 월요일부터 일요일까지 판매 금액 기준으로 전체와 아이템별 순위를 확인합니다.",
-    value: (row) => row.weeklySalesAmount,
-    total: (rows) => rows.reduce((sum, row) => sum + row.weeklySalesAmount, 0),
+    value: (row) => channelValue(row, "amount"),
+    total: (rows) => rows.reduce((sum, row) => sum + channelValue(row, "amount"), 0),
     format: (value) => compactMoney(value),
     subText: (row) => `${numberFormat.format(row.weeklyQty)}pcs · 주판율 ${percent(row.weeklyQty, row.inboundQty)}`,
   },
@@ -114,6 +134,20 @@ function weightedRate(rows, numeratorKey, denominatorKey) {
   return safeDivide(numerator, denominator);
 }
 
+function activeChannel() {
+  return CHANNEL_FILTERS.find((channel) => channel.id === state.selectedChannel) || CHANNEL_FILTERS[0];
+}
+
+function channelValue(row, field, previous = false) {
+  if (state.selectedChannel === "all") {
+    if (field === "qty") return previous ? row.previousWeeklyQty : row.weeklyQty;
+    if (field === "amount") return previous ? row.previousWeeklySalesAmount : row.weeklySalesAmount;
+    return 0;
+  }
+  const channels = previous ? row.previousChannels : row.weeklyChannels;
+  return Number(channels?.[state.selectedChannel]?.[field] || 0);
+}
+
 function activeMetric() {
   return METRICS[state.metric] || METRICS.weeklyQty;
 }
@@ -141,6 +175,10 @@ function targetWeekLabel() {
 
 function itemCode(styleCode) {
   return String(styleCode || "").slice(2, 4).toUpperCase();
+}
+
+function seasonCode(styleCode) {
+  return String(styleCode || "").slice(4, 6).toUpperCase();
 }
 
 function categoryFor(styleCode) {
@@ -201,8 +239,11 @@ function baseRows() {
       return {
         ...style,
         itemCode: itemCode(style.styleCode),
+        seasonCode: seasonCode(style.styleCode),
         itemLabel: group?.label || "미분류",
         itemId: group?.id || "unknown",
+        weeklyChannels: weekly.channels || {},
+        previousChannels: previousWeekly?.channels || {},
         weeklyQty: Number(weekly.actualQty || 0),
         normalQty: Number(weekly.normalQty || 0),
         inboundQty: Number(style.inboundQty || 0),
@@ -223,6 +264,8 @@ function baseRows() {
 
 function metricValueForRank(row, metricKey = state.metric, previous = false) {
   if (!previous) return activeMetric().value(row);
+  if (metricKey === "weeklyQty") return channelValue(row, "qty", true);
+  if (metricKey === "weeklyAmount") return channelValue(row, "amount", true);
   const values = {
     weeklyQty: row.previousWeeklyQty,
     weeklyAmount: row.previousWeeklySalesAmount,
@@ -241,6 +284,8 @@ function filteredRows() {
   return baseRows()
     .filter((row) => {
       if (selected.codes && !selected.codes.includes(row.itemCode)) return false;
+      if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
+      if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
     })
@@ -277,10 +322,11 @@ function imageFor(row) {
 
 function renderTabs() {
   const root = document.getElementById("categoryTabs");
+  const rows = filteredBaseRows();
   root.innerHTML = ITEM_GROUPS.map((group) => {
     const count = group.id === "all"
-      ? baseRows().length
-      : baseRows().filter((row) => group.codes.includes(row.itemCode)).length;
+      ? rows.length
+      : rows.filter((row) => group.codes.includes(row.itemCode)).length;
     const active = group.id === state.selectedCategory ? "active" : "";
     return `<button class="${active}" type="button" role="tab" aria-selected="${active ? "true" : "false"}" data-category="${group.id}">
       <span>${escapeHtml(group.label)}</span>
@@ -289,8 +335,42 @@ function renderTabs() {
   }).join("");
 }
 
+function filteredBaseRows() {
+  return baseRows().filter((row) => {
+    if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
+    if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+    return true;
+  });
+}
+
+function renderFilterTabs() {
+  const seasonRows = baseRows();
+  document.getElementById("seasonTabs").innerHTML = SEASON_FILTERS.map((season) => {
+    const count = season.id === "all" ? seasonRows.length : seasonRows.filter((row) => row.seasonCode === season.id).length;
+    const active = season.id === state.selectedSeason ? "active" : "";
+    return `<button class="${active}" type="button" data-season="${season.id}">
+      <span>${escapeHtml(season.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+
+  const channelRows = baseRows().filter((row) => state.selectedSeason === "all" || row.seasonCode === state.selectedSeason);
+  document.getElementById("channelTabs").innerHTML = CHANNEL_FILTERS.map((channel) => {
+    const count = channel.id === "all" ? channelRows.length : channelRows.filter((row) => Number(row.weeklyChannels?.[channel.id]?.qty || 0) > 0 || Number(row.weeklyChannels?.[channel.id]?.amount || 0) > 0).length;
+    const active = channel.id === state.selectedChannel ? "active" : "";
+    return `<button class="${active}" type="button" data-channel="${channel.id}">
+      <span>${escapeHtml(channel.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+}
+
 function renderMetricSwitcher() {
+  if (state.selectedChannel !== "all" && !CHANNEL_METRICS.has(state.metric)) state.metric = "weeklyQty";
   document.querySelectorAll("#metricSwitcher button[data-metric]").forEach((button) => {
+    const allowed = state.selectedChannel === "all" || CHANNEL_METRICS.has(button.dataset.metric);
+    button.hidden = !allowed;
+    button.disabled = !allowed;
     button.classList.toggle("active", button.dataset.metric === state.metric);
     button.setAttribute("aria-pressed", button.dataset.metric === state.metric ? "true" : "false");
   });
@@ -300,9 +380,11 @@ function renderTopList() {
   const rows = filteredRows();
   const selected = ITEM_GROUPS.find((group) => group.id === state.selectedCategory) || ITEM_GROUPS[0];
   const metric = activeMetric();
-  const topRows = rows.slice(0, 10);
+  const topRows = rows.slice(0, TOP_LIMIT);
   const ranksBefore = previousRankMap(rows);
-  document.getElementById("leaderboardTitle").textContent = `${selected.label} ${metric.label} Top 10`;
+  const seasonLabel = state.selectedSeason === "all" ? "" : `${state.selectedSeason} `;
+  const channelLabel = state.selectedChannel === "all" ? "" : `${activeChannel().label} `;
+  document.getElementById("leaderboardTitle").textContent = `${seasonLabel}${channelLabel}${selected.label} ${metric.label} Top ${TOP_LIMIT}`;
   document.getElementById("resultMeta").textContent = `${numberFormat.format(rows.length)}개 스타일 중 ${metric.label} 상위 ${numberFormat.format(topRows.length)}개`;
 
   const root = document.getElementById("topList");
@@ -341,7 +423,7 @@ function renderTopList() {
 }
 
 function renderCategoryCards() {
-  const rows = baseRows();
+  const rows = filteredBaseRows();
   const metric = activeMetric();
   const cards = ITEM_GROUPS.filter((group) => group.id !== "all").map((group) => {
     const groupRows = rows
@@ -438,7 +520,7 @@ function detailRow(label, value, subValue = "") {
 const CHANNEL_LABELS = {
   offline: "오프라인",
   online: "온라인",
-  buyer: "바이어",
+  buyer: "면세",
 };
 
 function channelBreakdown(weekly, weeklyQty) {
@@ -589,12 +671,14 @@ function closeDetailModal() {
 }
 
 function renderSummary() {
-  const rows = baseRows();
+  const rows = filteredBaseRows();
   const metric = activeMetric();
   const metricTotal = metric.total(rows);
   const target = targetWeekLabel();
   const displayed = rows.find((row) => row.weekLabel)?.weekLabel || sourceData.latestWeekLabel || sourceData.latestWeek || "-";
-  document.getElementById("pageTitle").textContent = `26년도 제품 ${metric.label} Top 10`;
+  const seasonLabel = state.selectedSeason === "all" ? "26년도 제품" : `${state.selectedSeason} 시즌`;
+  const channelLabel = state.selectedChannel === "all" ? "" : ` ${activeChannel().label}`;
+  document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel} ${metric.label} Top ${TOP_LIMIT}`;
   document.getElementById("pageSubtitle").textContent = metric.subtitle;
   document.getElementById("latestWeek").textContent = target;
   const generatedText = sourceData.generatedAt ? `생성 ${sourceData.generatedAt}` : "데이터 생성 정보 없음";
@@ -607,6 +691,7 @@ function renderSummary() {
 }
 
 function render() {
+  renderFilterTabs();
   renderMetricSwitcher();
   renderSummary();
   renderTabs();
@@ -616,8 +701,23 @@ function render() {
 
 document.getElementById("metricSwitcher").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-metric]");
-  if (!button) return;
+  if (!button || button.disabled) return;
   state.metric = button.dataset.metric;
+  render();
+});
+
+document.getElementById("seasonTabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-season]");
+  if (!button) return;
+  state.selectedSeason = button.dataset.season;
+  render();
+});
+
+document.getElementById("channelTabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-channel]");
+  if (!button) return;
+  state.selectedChannel = button.dataset.channel;
+  if (state.selectedChannel !== "all" && !CHANNEL_METRICS.has(state.metric)) state.metric = "weeklyQty";
   render();
 });
 

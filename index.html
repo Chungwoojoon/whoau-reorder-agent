@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WHO.A.U 주판량 Top 10</title>
+    <title>WHO.A.U 주판량 Top 20</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -20,7 +20,7 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">WHO.A.U WEEKLY SALES</p>
-          <h1 id="pageTitle">26년도 제품 주판량 Top 10</h1>
+          <h1 id="pageTitle">26년도 제품 주판량 Top 20</h1>
           <p class="subtitle" id="pageSubtitle">전 주 월요일부터 일요일까지 판매 수량 기준으로 전체와 아이템별 순위를 확인합니다.</p>
         </div>
         <div class="sync-card">
@@ -50,6 +50,17 @@
       </section>
 
       <section class="workbench">
+        <div class="filter-panel" aria-label="추가 필터">
+          <div class="filter-row">
+            <span>시즌</span>
+            <div class="pill-group" id="seasonTabs" role="tablist" aria-label="시즌 필터"></div>
+          </div>
+          <div class="filter-row">
+            <span>채널</span>
+            <div class="pill-group" id="channelTabs" role="tablist" aria-label="채널 필터"></div>
+          </div>
+        </div>
+
         <div class="controls">
           <div class="tabs" id="categoryTabs" role="tablist" aria-label="아이템 필터"></div>
           <label class="search-box">
@@ -61,8 +72,8 @@
         <section class="leaderboard" aria-labelledby="leaderboardTitle">
           <div class="section-head">
             <div>
-              <p class="eyebrow">TOP 10</p>
-              <h2 id="leaderboardTitle">전체 Top 10</h2>
+              <p class="eyebrow">TOP 20</p>
+              <h2 id="leaderboardTitle">전체 Top 20</h2>
             </div>
             <p id="resultMeta">-</p>
           </div>

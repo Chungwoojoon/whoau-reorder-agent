@@ -630,82 +630,10 @@ h2 {
   box-shadow: 0 24px 80px rgba(17, 32, 47, 0.28);
 }
 
-.review-modal {
-  width: min(1080px, calc(100vw - 28px));
-  max-height: min(820px, calc(100vh - 28px));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 24px 80px rgba(17, 32, 47, 0.28);
-}
-
 .co-body {
   max-height: calc(min(720px, 100vh - 28px) - 76px);
   overflow: auto;
   padding: 18px;
-}
-
-.review-body {
-  display: grid;
-  gap: 14px;
-  max-height: calc(min(820px, 100vh - 28px) - 76px);
-  overflow: auto;
-  padding: 18px;
-}
-
-.review-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-
-.review-summary div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.review-summary span,
-.review-summary small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.review-summary strong {
-  overflow: hidden;
-  color: var(--navy);
-  font-size: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.review-frame-wrap {
-  height: min(620px, calc(100vh - 240px));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.review-frame {
-  width: 100%;
-  height: 100%;
-  border: 0;
 }
 
 .co-week {
@@ -838,11 +766,6 @@ h2 {
 .modal-product-copy p {
   color: var(--muted);
   font-size: 13px;
-}
-
-.product-review-button {
-  justify-self: start;
-  margin-top: 4px;
 }
 
 .modal-content {
@@ -1038,18 +961,6 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .review-summary {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .review-link {
-    width: 100%;
-  }
-
-  .review-frame-wrap {
-    height: 520px;
-  }
 }
 
 @media (max-width: 640px) {

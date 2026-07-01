@@ -74,17 +74,20 @@ const METRICS = {
     value: (row) => channelValue(row, "amount"),
     total: (rows) => rows.reduce((sum, row) => sum + channelValue(row, "amount"), 0),
     format: (value) => compactMoney(value),
-    subText: (row) => `${numberFormat.format(row.weeklyQty)}pcs · 주판율 ${percent(row.weeklyQty, row.inboundQty)}`,
+    subText: (row) => `${numberFormat.format(row.weeklyQty)}pcs · 주판율 ${percent(row.weeklySalesAmount, row.inboundAmount)}`,
   },
   weeklyRate: {
     label: "주판율",
     totalLabel: "평균 주판율",
     unit: "%",
-    subtitle: "전 주 판매 수량을 입고량으로 나눈 비율 기준으로 전체와 아이템별 순위를 확인합니다.",
+    subtitle: "전 주 판매액을 입고액으로 나눈 비율 기준으로 전체와 아이템별 순위를 확인합니다.",
     value: (row) => row.weeklyRate,
-    total: (rows) => weightedRate(rows, "weeklyQty", "inboundQty"),
+    total: (rows) => safeDivide(
+      rows.reduce((sum, row) => sum + Number(row.weeklySalesAmount || 0), 0),
+      rows.reduce((sum, row) => sum + inboundAmountFor(row), 0),
+    ),
     format: (value) => `${(Number(value || 0) * 100).toFixed(1)}`,
-    subText: (row) => `${numberFormat.format(row.weeklyQty)}pcs / 입고 ${numberFormat.format(row.inboundQty)}pcs`,
+    subText: (row) => `${compactMoney(row.weeklySalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}`,
   },
   normalQty: {
     label: "정판량",
@@ -104,17 +107,20 @@ const METRICS = {
     value: (row) => row.normalSalesAmount,
     total: (rows) => rows.reduce((sum, row) => sum + row.normalSalesAmount, 0),
     format: (value) => compactMoney(value),
-    subText: (row) => `${numberFormat.format(row.normalQty)}pcs · 정판율 ${percent(row.normalQty, row.inboundQty)}`,
+    subText: (row) => `${numberFormat.format(row.normalQty)}pcs · 정판율 ${percent(row.normalSalesAmount, row.inboundAmount)}`,
   },
   normalRate: {
     label: "정판율",
     totalLabel: "평균 정판율",
     unit: "%",
-    subtitle: "전 주 정상 판매 수량을 입고량으로 나눈 비율 기준으로 전체와 아이템별 순위를 확인합니다.",
+    subtitle: "전 주 정상 판매액을 입고액으로 나눈 비율 기준으로 전체와 아이템별 순위를 확인합니다.",
     value: (row) => row.normalRate,
-    total: (rows) => weightedRate(rows, "normalQty", "inboundQty"),
+    total: (rows) => safeDivide(
+      rows.reduce((sum, row) => sum + Number(row.normalSalesAmount || 0), 0),
+      rows.reduce((sum, row) => sum + inboundAmountFor(row), 0),
+    ),
     format: (value) => `${(Number(value || 0) * 100).toFixed(1)}`,
-    subText: (row) => `${numberFormat.format(row.normalQty)}pcs / 입고 ${numberFormat.format(row.inboundQty)}pcs`,
+    subText: (row) => `${compactMoney(row.normalSalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}`,
   },
 };
 
@@ -132,6 +138,10 @@ function weightedRate(rows, numeratorKey, denominatorKey) {
   const numerator = rows.reduce((sum, row) => sum + Number(row[numeratorKey] || 0), 0);
   const denominator = rows.reduce((sum, row) => sum + Number(row[denominatorKey] || 0), 0);
   return safeDivide(numerator, denominator);
+}
+
+function inboundAmountFor(row) {
+  return Number(row.inboundAmount || 0);
 }
 
 function activeChannel() {
@@ -237,6 +247,9 @@ function baseRows() {
       const weekly = latestWeeklyRow(style);
       const previousWeekly = previousWeeklyRow(style);
       const group = categoryFor(style.styleCode);
+      const inboundQty = Number(style.inboundQty || 0);
+      const price = Number(style.price || 0);
+      const inboundAmount = inboundQty * price;
       return {
         ...style,
         itemCode: itemCode(style.styleCode),
@@ -247,15 +260,16 @@ function baseRows() {
         previousChannels: previousWeekly?.channels || {},
         weeklyQty: Number(weekly.actualQty || 0),
         normalQty: Number(weekly.normalQty || 0),
-        inboundQty: Number(style.inboundQty || 0),
-        weeklyRate: safeDivide(Number(weekly.actualQty || 0), Number(style.inboundQty || 0)),
-        normalRate: safeDivide(Number(weekly.normalQty || 0), Number(style.inboundQty || 0)),
+        inboundQty,
+        inboundAmount,
+        weeklyRate: safeDivide(Number(weekly.salesAmount || 0), inboundAmount),
+        normalRate: safeDivide(Number(weekly.normalAmount || 0), inboundAmount),
         weeklySalesAmount: Number(weekly.salesAmount || 0),
         normalSalesAmount: Number(weekly.normalAmount || 0),
         previousWeeklyQty: Number(previousWeekly?.actualQty || 0),
         previousNormalQty: Number(previousWeekly?.normalQty || 0),
-        previousWeeklyRate: safeDivide(Number(previousWeekly?.actualQty || 0), Number(style.inboundQty || 0)),
-        previousNormalRate: safeDivide(Number(previousWeekly?.normalQty || 0), Number(style.inboundQty || 0)),
+        previousWeeklyRate: safeDivide(Number(previousWeekly?.salesAmount || 0), inboundAmount),
+        previousNormalRate: safeDivide(Number(previousWeekly?.normalAmount || 0), inboundAmount),
         previousWeeklySalesAmount: Number(previousWeekly?.salesAmount || 0),
         previousNormalSalesAmount: Number(previousWeekly?.normalAmount || 0),
         weekLabel: weekly.label || sourceData.latestWeekLabel || "-",
@@ -610,8 +624,12 @@ function openDetailModal(styleCode) {
   const inboundQty = Number(style.inboundQty || 0);
   const weeklyQty = Number(weekly.actualQty || 0);
   const weeklyNormalQty = Number(weekly.normalQty || 0);
+  const weeklySalesAmount = Number(weekly.salesAmount || 0);
+  const weeklyNormalAmount = Number(weekly.normalAmount || 0);
   const totalQty = Number(style.totalQty || 0);
   const totalNormalQty = Number(style.totalNormalQty || 0);
+  const totalSalesAmount = Number(style.totalSalesAmount || 0);
+  const totalNormalAmount = Number(style.totalNormalAmount || 0);
   const stock = Number(style.stock || 0);
   const orderAmount = Number(style.orderAmount || orderQty * price || 0);
   const inboundAmount = inboundQty * price;
@@ -639,10 +657,10 @@ function openDetailModal(styleCode) {
         ${detailRow("가격", moneyFormat.format(price))}
         ${detailRow("발주량", `${numberFormat.format(orderQty)}pcs`, `발주액 ${wonMan(orderAmount)}`)}
         ${detailRow("입고량", `${numberFormat.format(inboundQty)}pcs`, `입고액 ${wonMan(inboundAmount)}`)}
-        ${detailRow("주간 판매량", `${numberFormat.format(weeklyQty)}pcs`, `주판율 ${percent(weeklyQty, inboundQty)}`)}
-        ${detailRow("주간 정상판매", `${numberFormat.format(weeklyNormalQty)}pcs`, `정상판매율 ${percent(weeklyNormalQty, inboundQty)}`)}
-        ${detailRow("누적 판매량", `${numberFormat.format(totalQty)}pcs`, `누적판매율 ${percent(totalQty, inboundQty)}`)}
-        ${detailRow("누적 정상판매", `${numberFormat.format(totalNormalQty)}pcs`, `정상판매율 ${percent(totalNormalQty, inboundQty)}`)}
+        ${detailRow("주간 판매량", `${numberFormat.format(weeklyQty)}pcs`, `주판율 ${percent(weeklySalesAmount, inboundAmount)}`)}
+        ${detailRow("주간 정상판매", `${numberFormat.format(weeklyNormalQty)}pcs`, `정상판매율 ${percent(weeklyNormalAmount, inboundAmount)}`)}
+        ${detailRow("누적 판매량", `${numberFormat.format(totalQty)}pcs`, `누적판매율 ${percent(totalSalesAmount, inboundAmount)}`)}
+        ${detailRow("누적 정상판매", `${numberFormat.format(totalNormalQty)}pcs`, `정상판매율 ${percent(totalNormalAmount, inboundAmount)}`)}
         ${detailRow("현재 재고", `${numberFormat.format(stock)}pcs`, `재고율 ${percent(stock, inboundQty)}`)}
         ${channelRows(channels, weeklyQty)}
         ${detailRow("최다 판매 매장", topStore.name || "-", `${numberFormat.format(topStore.qty || 0)}pcs · ${CHANNEL_LABELS[topStore.channel] || topStore.channel || "-"}`)}

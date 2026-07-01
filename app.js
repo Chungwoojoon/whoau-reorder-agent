@@ -31,12 +31,18 @@ const CHANNEL_FILTERS = [
 ];
 
 const CHANNEL_METRICS = new Set(["weeklyQty", "weeklyAmount"]);
+const GENDER_FILTERS = [
+  { id: "all", label: "전체" },
+  { id: "unisex", label: "유니" },
+  { id: "women", label: "여성" },
+];
 const TOP_LIMIT = 20;
 
 const state = {
   selectedCategory: "all",
   selectedSeason: "all",
   selectedChannel: "all",
+  selectedGender: "all",
   metric: "weeklyQty",
   query: "",
   detailStyleCode: "",
@@ -191,6 +197,13 @@ function seasonCode(styleCode) {
   return String(styleCode || "").slice(4, 6).toUpperCase();
 }
 
+function genderCode(styleCode) {
+  const suffix = String(styleCode || "").slice(-1).toUpperCase();
+  if (suffix === "U" || suffix === "M") return "unisex";
+  if (suffix === "F") return "women";
+  return "";
+}
+
 function categoryFor(styleCode) {
   const code = itemCode(styleCode);
   return ITEM_GROUPS.find((group) => group.id !== "all" && group.codes?.includes(code)) || null;
@@ -254,6 +267,7 @@ function baseRows() {
         ...style,
         itemCode: itemCode(style.styleCode),
         seasonCode: seasonCode(style.styleCode),
+        genderCode: genderCode(style.styleCode),
         itemLabel: group?.label || "미분류",
         itemId: group?.id || "unknown",
         weeklyChannels: weekly.channels || {},
@@ -301,6 +315,7 @@ function filteredRows() {
       if (selected.codes && !selected.codes.includes(row.itemCode)) return false;
       if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
       if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+      if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
     })
@@ -328,7 +343,9 @@ function rankChangeBadge(row, currentRank, rankMap) {
 function imageFor(row) {
   const image = imageMap[row.styleCode];
   if (!image?.imageUrl) {
-    return `<div class="thumb fallback">${escapeHtml(row.itemCode)}</div>`;
+    return `<button class="thumb-button" type="button" data-style="${escapeHtml(row.styleCode)}" aria-label="${escapeHtml(row.styleCode)} 상세 보기">
+      <div class="thumb fallback">${escapeHtml(row.itemCode)}</div>
+    </button>`;
   }
   return `<button class="thumb-button" type="button" data-style="${escapeHtml(row.styleCode)}" aria-label="${escapeHtml(row.styleCode)} 상세 보기">
     <img class="thumb" src="${image.imageUrl}" alt="${escapeHtml(row.styleName || row.styleCode)}" loading="lazy" referrerpolicy="no-referrer" />
@@ -354,6 +371,7 @@ function filteredBaseRows() {
   return baseRows().filter((row) => {
     if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
     if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+    if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
     return true;
   });
 }
@@ -378,6 +396,16 @@ function renderFilterTabs() {
       <em>${numberFormat.format(count)}</em>
     </button>`;
   }).join("");
+
+  const genderRows = channelRows.filter((row) => state.selectedChannel === "all" || Number(row.weeklyChannels?.[state.selectedChannel]?.qty || 0) > 0 || Number(row.weeklyChannels?.[state.selectedChannel]?.amount || 0) > 0);
+  document.getElementById("genderTabs").innerHTML = GENDER_FILTERS.map((gender) => {
+    const count = gender.id === "all" ? genderRows.length : genderRows.filter((row) => row.genderCode === gender.id).length;
+    const active = gender.id === state.selectedGender ? "active" : "";
+    return `<button class="${active}" type="button" data-gender="${gender.id}">
+      <span>${escapeHtml(gender.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
 }
 
 function renderMetricSwitcher() {
@@ -399,7 +427,8 @@ function renderTopList() {
   const ranksBefore = previousRankMap(rows);
   const seasonLabel = state.selectedSeason === "all" ? "" : `${state.selectedSeason} `;
   const channelLabel = state.selectedChannel === "all" ? "" : `${activeChannel().label} `;
-  document.getElementById("leaderboardTitle").textContent = `${seasonLabel}${channelLabel}${selected.label} ${metric.label} Top ${TOP_LIMIT}`;
+  const genderLabel = state.selectedGender === "all" ? "" : `${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""} `;
+  document.getElementById("leaderboardTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel}${selected.label} ${metric.label} Top ${TOP_LIMIT}`;
   document.getElementById("resultMeta").textContent = `${numberFormat.format(rows.length)}개 스타일 중 ${metric.label} 상위 ${numberFormat.format(topRows.length)}개`;
 
   const root = document.getElementById("topList");
@@ -697,7 +726,8 @@ function renderSummary() {
   const displayed = rows.find((row) => row.weekLabel)?.weekLabel || sourceData.latestWeekLabel || sourceData.latestWeek || "-";
   const seasonLabel = state.selectedSeason === "all" ? "26년도 제품" : `${state.selectedSeason} 시즌`;
   const channelLabel = state.selectedChannel === "all" ? "" : ` ${activeChannel().label}`;
-  document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel} ${metric.label} Top ${TOP_LIMIT}`;
+  const genderLabel = state.selectedGender === "all" ? "" : ` ${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""}`;
+  document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel} ${metric.label} Top ${TOP_LIMIT}`;
   document.getElementById("pageSubtitle").textContent = metric.subtitle;
   document.getElementById("latestWeek").textContent = target;
   const generatedText = sourceData.generatedAt ? `생성 ${sourceData.generatedAt}` : "데이터 생성 정보 없음";
@@ -737,6 +767,13 @@ document.getElementById("channelTabs").addEventListener("click", (event) => {
   if (!button) return;
   state.selectedChannel = button.dataset.channel;
   if (state.selectedChannel !== "all" && !CHANNEL_METRICS.has(state.metric)) state.metric = "weeklyQty";
+  render();
+});
+
+document.getElementById("genderTabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-gender]");
+  if (!button) return;
+  state.selectedGender = button.dataset.gender;
   render();
 });
 

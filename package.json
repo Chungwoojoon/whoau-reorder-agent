@@ -1,6 +1,7 @@
 {
   "scripts": {
     "generate:daas": "node scripts/generate-daas-data.mjs",
+    "generate:review-insights": "node scripts/fetch-review-insights.mjs",
     "start": "node server.mjs"
   },
   "dependencies": {

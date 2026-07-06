@@ -1,5 +1,6 @@
 const sourceData = window.REORDER_DATA || { styles: [] };
 const imageMap = window.WHOAU_IMAGE_MAP?.images || {};
+const reviewInsights = window.WHOAU_REVIEW_INSIGHTS?.insights || {};
 
 const ITEM_GROUPS = [
   { id: "all", label: "전체", codes: null },
@@ -609,6 +610,134 @@ function productNoFromUrl(url) {
   return match ? match[1] : "";
 }
 
+function insightPercent(value, total) {
+  const denominator = Number(total || 0);
+  if (!denominator) return "0%";
+  return `${Math.round((Number(value || 0) / denominator) * 100)}%`;
+}
+
+function insightKeywordChips(items, emptyText) {
+  if (!items?.length) return `<span class="review-empty-chip">${escapeHtml(emptyText)}</span>`;
+  return items.map((item) => `<span class="review-chip">${escapeHtml(item.label)} <b>${numberFormat.format(item.count)}</b></span>`).join("");
+}
+
+function insightReviewCards(items, emptyText) {
+  if (!items?.length) return `<div class="empty compact">${escapeHtml(emptyText)}</div>`;
+  return items.map((review) => `<article class="review-card">
+    <div class="review-card-meta">
+      <span>${escapeHtml(review.sourceLabel || review.source || "-")}</span>
+      <span>${escapeHtml(review.author || "고객")}</span>
+      <span>${escapeHtml(review.date || "-")}</span>
+      ${review.score ? `<span>${"★".repeat(Math.max(1, Math.min(5, Number(review.score))))}</span>` : ""}
+    </div>
+    <p>${escapeHtml(review.message || "")}</p>
+  </article>`).join("");
+}
+
+function insightStat(label, value, subValue = "") {
+  return `<article>
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(value)}</strong>
+    ${subValue ? `<small>${escapeHtml(subValue)}</small>` : ""}
+  </article>`;
+}
+
+function sourceStatusLabel(status) {
+  if (status === "collected") return "수집 완료";
+  if (status === "error") return "오류";
+  return "대기";
+}
+
+function sourceStatusClass(status) {
+  if (status === "collected") return "collected";
+  if (status === "error") return "error";
+  return "pending";
+}
+
+function sourceCards(sources = []) {
+  return sources.map((source) => `<a class="source-card ${sourceStatusClass(source.status)}" href="${escapeHtml(source.url || "#")}" target="_blank" rel="noreferrer">
+    <span>${escapeHtml(source.label)}</span>
+    <strong>${numberFormat.format(source.count || 0)}건</strong>
+    <small>${escapeHtml(sourceStatusLabel(source.status))}${source.reason ? ` · ${escapeHtml(source.reason)}` : ""}</small>
+  </a>`).join("");
+}
+
+function openReviewInsightModal(styleCode = state.detailStyleCode) {
+  const row = baseRows().find((item) => item.styleCode === styleCode);
+  const style = byStyle.get(styleCode) || row;
+  if (!style) return;
+
+  const modal = document.getElementById("reviewInsightModal");
+  const body = document.getElementById("reviewInsightBody");
+  const insight = reviewInsights[styleCode];
+  const styleName = style.styleName || style.productName || insight?.styleName || styleCode;
+  const analyzed = Number(insight?.analyzedReviews || 0);
+  const total = Number(insight?.totalReviews || 0);
+  const positive = Number(insight?.positiveCount || 0);
+  const negative = Number(insight?.negativeCount || 0);
+  const neutral = Number(insight?.neutralCount || 0);
+
+  document.getElementById("reviewInsightTitle").textContent = `${styleCode} 리뷰 인사이트`;
+
+  if (!insight) {
+    body.innerHTML = `<div class="empty">아직 이 스타일의 리뷰 인사이트 데이터가 없습니다. 리뷰 수집 스크립트를 실행하면 표시됩니다.</div>`;
+  } else {
+    body.innerHTML = `
+      <section class="review-hero">
+        <div>
+          <p class="eyebrow">STYLE REVIEW</p>
+          <h3>${escapeHtml(styleName)}</h3>
+          <span>${escapeHtml(styleCode)} · ${escapeHtml(insight.generatedAt || window.WHOAU_REVIEW_INSIGHTS?.generatedAt || "-")} 수집</span>
+        </div>
+        <div class="review-score">
+          <strong>${insight.averageScore ? Number(insight.averageScore).toFixed(1) : "-"}</strong>
+          <span>평균 평점</span>
+        </div>
+      </section>
+      <div class="review-source-grid">${sourceCards(insight.sources || [])}</div>
+      <div class="review-stat-grid">
+        ${insightStat("통합 리뷰", `${numberFormat.format(total)}건`, `${numberFormat.format(analyzed)}건 분석`)}
+        ${insightStat("긍정", `${numberFormat.format(positive)}건`, insightPercent(positive, analyzed))}
+        ${insightStat("부정", `${numberFormat.format(negative)}건`, insightPercent(negative, analyzed))}
+        ${insightStat("중립", `${numberFormat.format(neutral)}건`, insightPercent(neutral, analyzed))}
+      </div>
+      <section class="review-summary-panel">
+        <h3>많이 나온 리뷰 흐름</h3>
+        ${(insight.summary || []).map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
+        <small>${escapeHtml(window.WHOAU_REVIEW_INSIGHTS?.sourceNote || "")}</small>
+      </section>
+      <div class="review-keyword-grid">
+        <section>
+          <h3>긍정 키워드</h3>
+          <div class="review-chip-list">${insightKeywordChips(insight.positiveKeywords || [], "긍정 키워드 없음")}</div>
+        </section>
+        <section>
+          <h3>부정 키워드</h3>
+          <div class="review-chip-list negative">${insightKeywordChips(insight.negativeKeywords || [], "부정 키워드 없음")}</div>
+        </section>
+      </div>
+      <div class="review-columns">
+        <section>
+          <h3>긍정 대표 리뷰</h3>
+          ${insightReviewCards(insight.positiveReviews || [], "긍정 대표 리뷰가 없습니다.")}
+        </section>
+        <section>
+          <h3>부정 대표 리뷰</h3>
+          ${insightReviewCards(insight.negativeReviews || [], "부정 대표 리뷰가 없습니다.")}
+        </section>
+      </div>`;
+  }
+
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeReviewInsightModal() {
+  document.getElementById("reviewInsightModal").hidden = true;
+  document.getElementById("reviewInsightBody").innerHTML = "";
+  if (document.getElementById("detailModal").hidden && document.getElementById("coPurchaseModal").hidden) document.body.classList.remove("modal-open");
+}
+
 function openCoPurchaseModal(styleCode = state.detailStyleCode) {
   const style = byStyle.get(styleCode);
   if (!style) return;
@@ -688,6 +817,7 @@ function openDetailModal(styleCode) {
         <span>${escapeHtml(styleCode)}</span>
         <h3>${escapeHtml(style.styleName || style.productName || "-")}</h3>
         <p>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)} · ${escapeHtml(style.categoryMid || style.categoryLarge || "-")}</p>
+        <button class="modal-secondary product-review-button" type="button" data-review-insight-style="${escapeHtml(styleCode)}">리뷰 인사이트</button>
       </div>
     </aside>
     <section class="modal-content">
@@ -723,6 +853,8 @@ function openDetailModal(styleCode) {
 function closeDetailModal() {
   document.getElementById("detailModal").hidden = true;
   document.getElementById("coPurchaseModal").hidden = true;
+  document.getElementById("reviewInsightModal").hidden = true;
+  document.getElementById("reviewInsightBody").innerHTML = "";
   state.detailStyleCode = "";
   document.body.classList.remove("modal-open");
 }
@@ -815,15 +947,25 @@ document.getElementById("searchInput").addEventListener("input", (event) => {
 document.getElementById("modalClose").addEventListener("click", closeDetailModal);
 document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
 document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
+document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
+document.getElementById("modalBody").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-review-insight-style]");
+  if (!button) return;
+  openReviewInsightModal(button.dataset.reviewInsightStyle);
+});
 document.getElementById("detailModal").addEventListener("click", (event) => {
   if (event.target.id === "detailModal") closeDetailModal();
 });
 document.getElementById("coPurchaseModal").addEventListener("click", (event) => {
   if (event.target.id === "coPurchaseModal") closeCoPurchaseModal();
 });
+document.getElementById("reviewInsightModal").addEventListener("click", (event) => {
+  if (event.target.id === "reviewInsightModal") closeReviewInsightModal();
+});
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
+  if (!document.getElementById("reviewInsightModal").hidden) closeReviewInsightModal();
+  else if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
   else if (!document.getElementById("detailModal").hidden) closeDetailModal();
 });
 

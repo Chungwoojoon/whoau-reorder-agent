@@ -125,8 +125,22 @@
       </section>
     </div>
 
+    <div class="modal-backdrop nested" id="reviewInsightModal" hidden>
+      <section class="review-insight-modal" role="dialog" aria-modal="true" aria-labelledby="reviewInsightTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">REVIEW INSIGHT</p>
+            <h2 id="reviewInsightTitle">리뷰 인사이트</h2>
+          </div>
+          <button class="modal-close" id="reviewInsightClose" type="button" aria-label="닫기">×</button>
+        </header>
+        <div class="review-insight-body" id="reviewInsightBody"></div>
+      </section>
+    </div>
+
     <script src="./data/app-data.js"></script>
     <script src="./data/image-map.js"></script>
+    <script src="./data/review-insights.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

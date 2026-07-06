@@ -10,3 +10,10 @@ try {
   Pop-Location
 }
 & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
+
+Push-Location $projectRoot
+try {
+  npm.cmd run generate:review-insights
+} finally {
+  Pop-Location
+}

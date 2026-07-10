@@ -951,7 +951,7 @@ function sortNegativeReviews(rows) {
     const issueCountB = (b.issueTags || []).length + (b.note ? 1 : 0);
     const ratingA = reviewRatingValue(a, 99);
     const ratingB = reviewRatingValue(b, 99);
-    return issueCountB - issueCountA || ratingA - ratingB || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
+    return ratingA - ratingB || issueCountB - issueCountA || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
   });
 }
 

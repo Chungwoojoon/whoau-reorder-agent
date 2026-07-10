@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>플랫폼 주간 트렌드 스캔</title>
+    <link rel="stylesheet" href="./market-scan.css" />
+  </head>
+  <body>
+    <main class="scan-shell">
+      <header class="scan-header">
+        <div>
+          <p class="eyebrow">MARKET SCAN</p>
+          <h1>무신사 · 지그재그 · 29CM 최근 판매/노출 트렌드</h1>
+          <p class="lead">
+            1주 기준으로 확인 가능한 랭킹은 주간 랭킹으로, 공개 홈만 확인되는 플랫폼은 홈 노출 신호로 구분했습니다.
+          </p>
+        </div>
+        <aside class="scan-meta">
+          <span>확인 시점</span>
+          <strong id="generatedAt">-</strong>
+        </aside>
+      </header>
+
+      <section class="platform-tabs" id="platformTabs" aria-label="플랫폼 선택"></section>
+
+      <section class="insight-panel" aria-labelledby="platformTitle">
+        <div class="insight-main">
+          <div class="title-row">
+            <div>
+              <p class="eyebrow" id="basisLabel">-</p>
+              <h2 id="platformTitle">-</h2>
+            </div>
+            <a id="sourceLink" href="#" target="_blank" rel="noreferrer">원문 보기</a>
+          </div>
+          <p id="summaryText" class="summary-text"></p>
+          <div class="signal-list" id="signalList"></div>
+        </div>
+        <div class="review-box">
+          <div class="box-head">
+            <span>리뷰/스타일 포인트</span>
+            <strong id="confidenceLabel">-</strong>
+          </div>
+          <ul id="reviewThemes"></ul>
+        </div>
+      </section>
+
+      <section class="product-section" aria-labelledby="productTitle">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">TOP SIGNALS</p>
+            <h2 id="productTitle">상품/기획전 스냅샷</h2>
+          </div>
+          <p id="productMeta">-</p>
+        </div>
+        <div class="product-grid" id="productGrid"></div>
+      </section>
+
+      <section class="compare-section" aria-labelledby="compareTitle">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">CROSS PLATFORM</p>
+            <h2 id="compareTitle">한 줄 비교</h2>
+          </div>
+        </div>
+        <div class="compare-grid" id="compareGrid"></div>
+      </section>
+    </main>
+
+    <script src="./data/market-scan-data.js"></script>
+    <script src="./market-scan.js"></script>
+  </body>
+</html>

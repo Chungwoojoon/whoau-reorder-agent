@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WHO.A.U 상품판매분석</title>
+    <link rel="stylesheet" href="./sales-analysis.css" />
+  </head>
+  <body>
+    <main class="sales-board">
+      <header class="board-head">
+        <div>
+          <p>WHO.A.U SALES ANALYSIS</p>
+          <h1>상품판매분석</h1>
+        </div>
+        <div class="head-meta">
+          <span>기준 주차</span>
+          <strong id="dataWeek">-</strong>
+        </div>
+      </header>
+
+      <nav class="top-tabs" aria-label="화면 선택">
+        <button class="active" type="button" data-view="style">스타일별</button>
+        <button type="button" data-view="total">전체</button>
+      </nav>
+
+      <section class="season-tabs" aria-label="시즌 선택">
+        <button class="active" type="button" data-season="26SS">26SS</button>
+        <button type="button" data-season="26FW">26FW</button>
+      </section>
+
+      <section id="styleView" class="view active">
+        <div class="section-title">
+          <div>
+            <p>STYLE DETAIL</p>
+            <h2>스타일별 판매 현황</h2>
+          </div>
+          <label class="search-box">
+            <span>검색</span>
+            <input id="styleSearch" type="search" placeholder="스타일코드 또는 스타일명" />
+          </label>
+        </div>
+        <div class="style-board-shell" id="styleTable"></div>
+      </section>
+
+      <section id="totalView" class="view">
+        <div class="section-title">
+          <div>
+            <p>SUMMARY</p>
+            <h2>전체 및 담당 아이템 정리</h2>
+          </div>
+          <span id="seasonLabel" class="season-label">26SS</span>
+        </div>
+
+        <div class="summary-cards" id="summaryCards"></div>
+
+        <div class="table-shell">
+          <table class="summary-table" id="summaryTable"></table>
+        </div>
+
+        <section class="rank-grid">
+          <article>
+            <h3>주판액 베스트 10</h3>
+            <table id="weeklyAmountTop"></table>
+          </article>
+          <article>
+            <h3>전년 동일기간 주판액 베스트 10</h3>
+            <table id="priorAmountTop"></table>
+          </article>
+          <article>
+            <h3>주판율 베스트 10</h3>
+            <table id="weeklyRateTop"></table>
+          </article>
+          <article>
+            <h3>전년 동일기간 주판율 베스트 10</h3>
+            <table id="priorRateTop"></table>
+          </article>
+        </section>
+
+        <section class="rank-grid growth">
+          <article>
+            <h3>전년 대비 주판 성장 베스트 10</h3>
+            <table id="growthWeeklyBest"></table>
+          </article>
+          <article>
+            <h3>전년 대비 주판 성장 워스트 10</h3>
+            <table id="growthWeeklyWorst"></table>
+          </article>
+          <article>
+            <h3>전년 대비 누판 성장 베스트 10</h3>
+            <table id="growthTotalBest"></table>
+          </article>
+          <article>
+            <h3>전년 대비 누판 성장 워스트 10</h3>
+            <table id="growthTotalWorst"></table>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script src="./data/image-map.js"></script>
+    <script src="./data/progress-similar-map.js"></script>
+    <script src="./sales-analysis.js"></script>
+  </body>
+</html>

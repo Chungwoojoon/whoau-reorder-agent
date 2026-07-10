@@ -1,6 +1,7 @@
 const sourceData = window.REORDER_DATA || { styles: [] };
 const imageMap = window.WHOAU_IMAGE_MAP?.images || {};
-const reviewInsights = window.WHOAU_REVIEW_INSIGHTS?.insights || {};
+const reviewPayload = window.WHOAU_REVIEW_INSIGHTS || {};
+const reviewInsights = reviewPayload.insights || {};
 
 const ITEM_GROUPS = [
   { id: "all", label: "전체", codes: null },
@@ -47,6 +48,15 @@ const state = {
   metric: "weeklyQty",
   query: "",
   detailStyleCode: "",
+};
+
+const reviewDashboardState = {
+  query: "",
+  channel: "지그재그",
+  category: "all",
+  season: "all",
+  rating: "all",
+  reaction: "all",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -442,7 +452,7 @@ function renderTopList() {
   root.innerHTML = topRows.map((row, index) => {
     const metricValue = metric.value(row);
     const percent = Math.max(4, Math.round((metricValue / maxValue) * 100));
-    return `<article class="rank-row">
+    return `<article class="rank-row" data-style="${escapeHtml(row.styleCode)}">
       <div class="rank">${index + 1}</div>
       ${imageFor(row)}
       <div class="product">
@@ -626,11 +636,16 @@ function insightReviewCards(items, emptyText) {
   return items.map((review) => `<article class="review-card">
     <div class="review-card-meta">
       <span>${escapeHtml(review.sourceLabel || review.source || "-")}</span>
-      <span>${escapeHtml(review.author || "고객")}</span>
       <span>${escapeHtml(review.date || "-")}</span>
       ${review.score ? `<span>${"★".repeat(Math.max(1, Math.min(5, Number(review.score))))}</span>` : ""}
+      ${review.reaction ? `<span>${escapeHtml(review.reaction)}</span>` : ""}
     </div>
     <p>${escapeHtml(review.message || "")}</p>
+    ${(review.issueTags?.length || review.sizeJudgement || review.note) ? `<div class="review-card-tags">
+      ${(review.issueTags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+      ${review.sizeJudgement ? `<span>${escapeHtml(review.sizeJudgement)}</span>` : ""}
+      ${review.note ? `<span>${escapeHtml(review.note)}</span>` : ""}
+    </div>` : ""}
   </article>`).join("");
 }
 
@@ -642,12 +657,6 @@ function insightStat(label, value, subValue = "") {
   </article>`;
 }
 
-function sourceStatusLabel(status) {
-  if (status === "collected") return "수집 완료";
-  if (status === "error") return "오류";
-  return "대기";
-}
-
 function sourceStatusClass(status) {
   if (status === "collected") return "collected";
   if (status === "error") return "error";
@@ -655,20 +664,453 @@ function sourceStatusClass(status) {
 }
 
 function sourceCards(sources = []) {
-  return sources.map((source) => `<a class="source-card ${sourceStatusClass(source.status)}" href="${escapeHtml(source.url || "#")}" target="_blank" rel="noreferrer">
+  return sources.map((source) => `<article class="source-card ${sourceStatusClass(source.status)}">
     <span>${escapeHtml(source.label)}</span>
     <strong>${numberFormat.format(source.count || 0)}건</strong>
-    <small>${escapeHtml(sourceStatusLabel(source.status))}${source.reason ? ` · ${escapeHtml(source.reason)}` : ""}</small>
-  </a>`).join("");
+    <small>${source.count ? "시트 집계" : "데이터 없음"}</small>
+  </article>`).join("");
 }
 
-function openReviewInsightModal(styleCode = state.detailStyleCode) {
-  const row = baseRows().find((item) => item.styleCode === styleCode);
-  const style = byStyle.get(styleCode) || row;
-  if (!style) return;
+function topReviewStyleRows(items = []) {
+  if (!items.length) return `<div class="empty compact">리뷰가 집계된 스타일이 없습니다.</div>`;
+  return `<div class="review-style-list">${items.map((item, index) => `<button type="button" data-review-style="${escapeHtml(item.styleCode)}">
+    <b>${index + 1}</b>
+    <span>
+      <strong>${escapeHtml(item.styleName || item.styleCode)}</strong>
+      <small>${escapeHtml(item.styleCode)} · 리뷰 ${numberFormat.format(item.totalReviews || 0)}건 · 평균 ${item.averageScore ? Number(item.averageScore).toFixed(1) : "-"}</small>
+    </span>
+    <em>긍정 ${insightPercent(item.positiveCount || 0, item.totalReviews || 0)}</em>
+  </button>`).join("")}</div>`;
+}
 
-  const modal = document.getElementById("reviewInsightModal");
-  const body = document.getElementById("reviewInsightBody");
+function reviewFilterButton(group, value, label, count = null) {
+  const active = reviewDashboardState[group] === value;
+  return `<button class="${active ? "active" : ""}" type="button" data-review-filter="${group}" data-value="${escapeHtml(value)}">
+    ${escapeHtml(label)}${count === null ? "" : ` <b>${numberFormat.format(count)}</b>`}
+  </button>`;
+}
+
+function reviewSeasonOptions(reviews) {
+  const preferred = ["D1", "D4", "E1", "E2", "E3", "E4", "F1", "F2", "F3", "F4", "G1", "G2", "G3", "G4"];
+  const found = new Set(reviews.map((review) => seasonCode(review.styleCode)).filter(Boolean));
+  return preferred.filter((season) => found.has(season));
+}
+
+function reviewMatchesDashboard(review) {
+  const query = reviewDashboardState.query.trim().toUpperCase();
+  const styleCategory = categoryFor(review.styleCode)?.id || "";
+  const styleSeason = seasonCode(review.styleCode);
+  const noteOnly = reviewDashboardState.channel === "issuesOnly";
+  const channelOk = reviewDashboardState.channel === "all" || noteOnly || review.channel === reviewDashboardState.channel;
+  const noteOk = !noteOnly || Boolean(review.note);
+  const categoryOk = reviewDashboardState.category === "all" || styleCategory === reviewDashboardState.category;
+  const seasonOk = reviewDashboardState.season === "all" || styleSeason === reviewDashboardState.season;
+  const ratingOk = reviewDashboardState.rating === "all" || Number(review.rating) === Number(reviewDashboardState.rating);
+  const reactionOk = reviewDashboardState.reaction === "all" || review.reaction === reviewDashboardState.reaction;
+  const queryOk = !query || [review.productName, review.styleCode, review.message].some((value) => String(value || "").toUpperCase().includes(query));
+  return channelOk && noteOk && categoryOk && seasonOk && ratingOk && reactionOk && queryOk;
+}
+
+function reviewAverage(rows) {
+  const rated = rows.filter((review) => Number(review.rating) > 0);
+  if (!rated.length) return 0;
+  return rated.reduce((sum, review) => sum + Number(review.rating), 0) / rated.length;
+}
+
+function reviewCountMap(rows, getter) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = getter(row);
+    if (!key) continue;
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return map;
+}
+
+function reviewTagRows(rows) {
+  const counts = new Map();
+  for (const row of rows) for (const tag of row.issueTags || []) counts.set(tag, (counts.get(tag) || 0) + 1);
+  const items = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).slice(0, 10);
+  if (!items.length) return `<div class="empty compact">표시할 이슈 태그가 없습니다.</div>`;
+  return `<div class="review-insight-bars">${items.map(([label, count]) => {
+    const width = Math.max(8, Math.round((count / items[0][1]) * 100));
+    return `<div><span>${escapeHtml(label)}</span><b>${numberFormat.format(count)}</b><i style="width:${width}%"></i></div>`;
+  }).join("")}</div>`;
+}
+
+function reviewStars(rating) {
+  const score = Math.max(0, Math.min(5, Number(rating || 0)));
+  return `${"★".repeat(score)}${"☆".repeat(5 - score)}`;
+}
+
+function reviewBar(width, colorClass = "") {
+  return `<span class="review-bar"><i class="${colorClass}" style="width:${Math.max(1, Math.min(100, width))}%"></i></span>`;
+}
+
+function normalizedSizeLabel(value) {
+  const text = String(value || "");
+  if (/작|작음|작다/.test(text)) return "작다";
+  if (/크|큼|크다/.test(text)) return "크다";
+  if (/정/.test(text)) return "정사이즈";
+  return "";
+}
+
+function reviewProductCategoryName(productName = "") {
+  const name = String(productName);
+  const rules = [
+    ["패딩점퍼", /패딩.*점퍼|롱패딩|숏패딩/],
+    ["일반점퍼", /점퍼|윈드브레이커|파카|자켓|재킷/],
+    ["집업", /집업|후드집업/],
+    ["가디건", /가디건/],
+    ["풀오버스웨터", /스웨터|풀오버|니트/],
+    ["변형반팔티", /헨리넥|링거|슬림핏|레이어드.*반팔|반팔.*티/],
+    ["일반티셔츠", /티셔츠|T-shirt|티\b/],
+    ["셔츠", /셔츠|블라우스/],
+    ["팬츠", /팬츠|데님|쇼츠|바지|슬랙스/],
+    ["스커트/원피스", /스커트|원피스/],
+    ["잡화", /모자|볼캡|슬리퍼|부츠|양말|백|가방/],
+  ];
+  return rules.find(([, pattern]) => pattern.test(name))?.[0] || "기타";
+}
+
+function reviewStatsTable(rows, groupGetter, firstLabel, countSuffix = "") {
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = groupGetter(row);
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, { label: key, count: 0, ratingSum: 0, ratingCount: 0, negative: 0 });
+    const item = grouped.get(key);
+    item.count += 1;
+    if (Number(row.rating) > 0) {
+      item.ratingSum += Number(row.rating);
+      item.ratingCount += 1;
+    }
+    if (row.reaction === "부정") item.negative += 1;
+  }
+  const items = [...grouped.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ko"));
+  return `<div class="review-table-wrap">
+    <table class="review-mini-table">
+      <thead><tr><th>${escapeHtml(firstLabel)}</th><th>리뷰</th><th>평균</th><th>부정</th></tr></thead>
+      <tbody>${items.map((item) => `<tr>
+        <td>${escapeHtml(item.label)}</td>
+        <td>${numberFormat.format(item.count)}${countSuffix}</td>
+        <td class="green">${item.ratingCount ? (item.ratingSum / item.ratingCount).toFixed(1) : "-"}</td>
+        <td class="red">${numberFormat.format(item.negative)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
+function ratingDistributionPanel(rows) {
+  const counts = new Map([5, 4, 3, 2, 1].map((rating) => [rating, 0]));
+  for (const row of rows) counts.set(Number(row.rating), (counts.get(Number(row.rating)) || 0) + 1);
+  const max = Math.max(...counts.values(), 1);
+  return `<section class="review-analysis-card">
+    <h4>별점 분포 <small>${numberFormat.format(rows.length)}건</small></h4>
+    <div class="rating-bars">${[5, 4, 3, 2, 1].map((rating) => {
+      const count = counts.get(rating) || 0;
+      const color = rating >= 4 ? "green" : rating === 3 ? "gold" : "red";
+      return `<div>
+        <span>${reviewStars(rating)}</span>
+        ${reviewBar((count / max) * 100, color)}
+        <b>${numberFormat.format(count)}</b>
+      </div>`;
+    }).join("")}</div>
+  </section>`;
+}
+
+function reactionSizePanel(rows) {
+  const positive = rows.filter((row) => row.reaction === "긍정").length;
+  const negative = rows.filter((row) => row.reaction === "부정").length;
+  const neutral = rows.length - positive - negative;
+  const posWidth = rows.length ? (positive / rows.length) * 100 : 0;
+  const neuWidth = rows.length ? (neutral / rows.length) * 100 : 0;
+  const negWidth = rows.length ? (negative / rows.length) * 100 : 0;
+  const sizeCounts = new Map([["작다", 0], ["크다", 0], ["정사이즈", 0]]);
+  for (const row of rows) {
+    const label = normalizedSizeLabel(row.sizeJudgement);
+    if (label) sizeCounts.set(label, (sizeCounts.get(label) || 0) + 1);
+  }
+  const maxSize = Math.max(...sizeCounts.values(), 1);
+  return `<section class="review-analysis-card">
+    <h4>반응 비율</h4>
+    <div class="reaction-stack">
+      <i class="green" style="width:${posWidth}%"></i>
+      <i class="gold" style="width:${neuWidth}%"></i>
+      <i class="red" style="width:${negWidth}%"></i>
+    </div>
+    <div class="reaction-legend">
+      <span class="green">긍정 ${numberFormat.format(positive)}</span>
+      <span class="gold">중립 ${numberFormat.format(neutral)}</span>
+      <span class="red">부정 ${numberFormat.format(negative)}</span>
+    </div>
+    <h4 class="sub">사이즈 피드백</h4>
+    <div class="size-bars">${["작다", "크다", "정사이즈"].map((label) => {
+      const count = sizeCounts.get(label) || 0;
+      const color = label === "정사이즈" ? "green" : label === "크다" ? "gold" : "red";
+      return `<div><span>${label}</span>${reviewBar((count / maxSize) * 100, color)}<b>${numberFormat.format(count)}</b></div>`;
+    }).join("")}</div>
+  </section>`;
+}
+
+function issuePanel(rows) {
+  const totalCounts = new Map();
+  const negativeCounts = new Map();
+  for (const row of rows) {
+    for (const tag of row.issueTags || []) {
+      totalCounts.set(tag, (totalCounts.get(tag) || 0) + 1);
+      if (row.reaction === "부정" || row.note) negativeCounts.set(tag, (negativeCounts.get(tag) || 0) + 1);
+    }
+  }
+  const items = [...totalCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).slice(0, 8);
+  const max = Math.max(...items.map(([, count]) => count), 1);
+  return `<section class="review-analysis-card">
+    <h4>자주 언급된 이슈</h4>
+    <div class="issue-bars">${items.map(([label, count]) => `<div>
+      <span>${escapeHtml(label)}</span>
+      <small>부정 ${numberFormat.format(negativeCounts.get(label) || 0)}</small>
+      ${reviewBar((count / max) * 100, "blue")}
+      <b>${numberFormat.format(count)}</b>
+    </div>`).join("")}</div>
+  </section>`;
+}
+
+function reviewCardList(rows, kind) {
+  const isNegative = kind === "negative";
+  const title = isNegative ? "부정·지적 리뷰 우선 대응" : "긍정 리뷰";
+  const filtered = rows.filter((row) => isNegative ? row.reaction === "부정" || row.note : row.reaction === "긍정");
+  const sample = filtered.slice(0, 100);
+  return `<section class="review-long-list-panel ${isNegative ? "negative" : "positive"}">
+    <h4>${title} <small>${numberFormat.format(filtered.length)}건</small></h4>
+    <div class="review-long-list">${sample.map((review) => `<article>
+      <header>
+        <span>${reviewStars(Number(review.rating || 0))}</span>
+        <strong>${escapeHtml(review.productName || "-")}</strong>
+        <em>· ${escapeHtml(review.styleCode || "스타일코드 없음")} · ${escapeHtml(review.channel || "-")} · ${escapeHtml(reviewProductCategoryName(review.productName))} · ${escapeHtml(seasonCode(review.styleCode) || "-")} · ${escapeHtml(review.reviewDate || "-")}</em>
+        ${review.note ? `<b>지적</b>` : ""}
+      </header>
+      <p>${escapeHtml(review.message || "")}</p>
+      <footer>
+        ${(review.issueTags || []).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}
+        ${review.sizeJudgement ? `<i>${escapeHtml(review.sizeJudgement)}</i>` : ""}
+      </footer>
+    </article>`).join("")}</div>
+    <p class="review-list-note">위 ${numberFormat.format(filtered.length)}건은 분석결과 탭에서 확인하세요.</p>
+  </section>`;
+}
+
+function reviewStyleSummaryRows(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = row.styleCode || "스타일코드 없음";
+    if (!grouped.has(key)) grouped.set(key, { styleCode: key, styleName: row.productName || key, totalReviews: 0, positiveCount: 0, negativeCount: 0, ratingSum: 0, ratingCount: 0 });
+    const item = grouped.get(key);
+    item.totalReviews += 1;
+    if (row.reaction === "긍정") item.positiveCount += 1;
+    if (row.reaction === "부정") item.negativeCount += 1;
+    if (Number(row.rating) > 0) {
+      item.ratingSum += Number(row.rating);
+      item.ratingCount += 1;
+    }
+  }
+  const items = [...grouped.values()].sort((a, b) => b.totalReviews - a.totalReviews).slice(0, 10).map((item) => ({
+    ...item,
+    averageScore: item.ratingCount ? item.ratingSum / item.ratingCount : 0,
+  }));
+  return topReviewStyleRows(items.filter((item) => item.styleCode !== "스타일코드 없음"));
+}
+
+function styleReviewRows(styleCode) {
+  return (reviewPayload.reviews || []).filter((review) => review.styleCode === styleCode);
+}
+
+function reviewDateValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/-\s+/g, " ");
+  const time = Date.parse(normalized);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function reviewAvgText(rows) {
+  const rated = rows.filter((review) => Number(review.rating) > 0);
+  if (!rated.length) return "0.0점";
+  const avg = rated.reduce((sum, review) => sum + Number(review.rating), 0) / rated.length;
+  return `${avg.toFixed(1)}점`;
+}
+
+function inlineChannelScores(rows) {
+  const channels = ["전체", "지그재그", "무신사", "공홈", "네이버", "이랜드몰"];
+  return channels.map((channel) => {
+    const channelRows = channel === "전체" ? rows : rows.filter((review) => review.channel === channel);
+    return `<article>
+      <span>${escapeHtml(channel)}</span>
+      <strong>${reviewAvgText(channelRows)}</strong>
+      <small>리뷰 ${numberFormat.format(channelRows.length)}개</small>
+    </article>`;
+  }).join("");
+}
+
+function inlineReviewList(rows, emptyText) {
+  if (!rows.length) return `<div class="empty compact">${escapeHtml(emptyText)}</div>`;
+  return `<div class="inline-review-list">${rows.map((review) => `<article>
+    <header>
+      <span>${reviewStars(Number(review.rating || 0))}</span>
+      <strong>${escapeHtml(review.channel || "-")}</strong>
+      <em>${escapeHtml(review.reviewDate || "-")}</em>
+    </header>
+    <p>${escapeHtml(review.message || "")}</p>
+    <footer>
+      ${(review.issueTags || []).slice(0, 5).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}
+      ${review.sizeJudgement ? `<i>${escapeHtml(review.sizeJudgement)}</i>` : ""}
+      ${review.note ? `<i>지적사항</i>` : ""}
+    </footer>
+  </article>`).join("")}</div>`;
+}
+
+function inlineStyleReviews(styleCode) {
+  const rows = styleReviewRows(styleCode);
+  const positiveRows = rows.filter((review) => review.reaction === "긍정");
+  const negativeRows = rows.filter((review) => review.reaction === "부정" || review.note);
+  const now = Date.now();
+  const recentWeekCount = rows.filter((review) => {
+    const time = reviewDateValue(review.reviewDate);
+    return time && now - time <= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+  const latestRows = [...rows].sort((a, b) => reviewDateValue(b.reviewDate) - reviewDateValue(a.reviewDate)).slice(0, 10);
+
+  return `<section class="inline-style-reviews">
+    <div class="inline-review-head">
+      <div>
+        <p class="eyebrow">REVIEW INSIGHT</p>
+        <h3>스타일 리뷰</h3>
+      </div>
+      <span>총 ${numberFormat.format(rows.length)}개 리뷰</span>
+    </div>
+    <div class="inline-score-grid">${inlineChannelScores(rows)}</div>
+    <div class="inline-review-columns">
+      <section>
+        <h4>긍정 대표 리뷰 <small>${numberFormat.format(positiveRows.length)}건</small></h4>
+        ${inlineReviewList(positiveRows.slice(0, 10), "긍정 리뷰가 없습니다.")}
+      </section>
+      <section>
+        <h4>부정·지적 대표 리뷰 <small>${numberFormat.format(negativeRows.length)}건</small></h4>
+        ${inlineReviewList(negativeRows.slice(0, 10), "부정 또는 지적 리뷰가 없습니다.")}
+      </section>
+    </div>
+    <section class="inline-latest-reviews">
+      <h4>최신 리뷰 <small>최근 일주일 추가 ${numberFormat.format(recentWeekCount)}건</small></h4>
+      ${inlineReviewList(latestRows, "최신 리뷰가 없습니다.")}
+    </section>
+  </section>`;
+}
+
+function renderReviewOverview() {
+  const overview = reviewPayload.overview || {};
+  const allReviews = reviewPayload.reviews || [];
+  const rows = allReviews.filter(reviewMatchesDashboard);
+  const total = Number(overview.totalReviews || allReviews.length || 0);
+  const positive = rows.filter((review) => review.reaction === "긍정").length;
+  const negative = rows.filter((review) => review.reaction === "부정").length;
+  const noteCount = rows.filter((review) => review.note).length;
+  const channelCounts = reviewCountMap(allReviews, (review) => review.channel);
+  const categoryCounts = reviewCountMap(allReviews, (review) => categoryFor(review.styleCode)?.id || "");
+  const seasonOptions = reviewSeasonOptions(allReviews);
+
+  document.getElementById("reviewInsightTitle").textContent = "리뷰 인사이트";
+
+  return `
+    <section class="review-app-shell">
+      <header class="review-app-head">
+        <div>
+          <p>WHO.A.U · ONLINE TEAM</p>
+          <h3>리뷰 인사이트</h3>
+          <span>총 ${numberFormat.format(total)}건 · 현재 보기 ${numberFormat.format(rows.length)}건</span>
+        </div>
+        <button type="button" data-review-refresh>새로고침</button>
+      </header>
+
+      <div class="review-app-search">
+        <input id="reviewSearchInput" type="search" value="${escapeHtml(reviewDashboardState.query)}" placeholder="상품명 또는 스타일코드 검색 (예: 헨리넥 / WHRAG)" />
+      </div>
+
+      <div class="review-app-stats">
+        <article><span>총 리뷰</span><strong>${numberFormat.format(rows.length)}<small>건</small></strong></article>
+        <article><span>평균 별점</span><strong>${reviewAverage(rows).toFixed(2)}<small>/ 5</small></strong></article>
+        <article><span>긍정 비율</span><strong class="green">${insightPercent(positive, rows.length).replace("%", "")}<small>%</small></strong></article>
+        <article><span>지적 포함</span><strong class="red">${insightPercent(noteCount, rows.length).replace("%", "")}<small>%</small></strong></article>
+      </div>
+
+      <div class="review-app-filters">
+        <div>
+          <span>채널</span>
+          <div class="review-filter-pills">
+            ${reviewFilterButton("channel", "all", "전체", allReviews.length)}
+            ${["지그재그", "네이버", "무신사", "이랜드몰", "공홈"].map((channel) => reviewFilterButton("channel", channel, channel, channelCounts.get(channel) || 0)).join("")}
+            ${reviewFilterButton("channel", "issuesOnly", "지적사항만")}
+          </div>
+        </div>
+        <div>
+          <span>카테고리</span>
+          <select id="reviewCategorySelect">
+            ${ITEM_GROUPS.map((group) => `<option value="${group.id}" ${reviewDashboardState.category === group.id ? "selected" : ""}>${escapeHtml(group.label)}${group.id === "all" ? "" : ` (${numberFormat.format(categoryCounts.get(group.id) || 0)})`}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <span>시즌</span>
+          <div class="review-filter-pills">
+            ${reviewFilterButton("season", "all", "전체")}
+            ${seasonOptions.map((season) => reviewFilterButton("season", season, season)).join("")}
+          </div>
+        </div>
+        <div>
+          <span>별점</span>
+          <div class="review-filter-pills">
+            ${reviewFilterButton("rating", "all", "전체")}
+            ${[5, 4, 3, 2, 1].map((rating) => reviewFilterButton("rating", String(rating), `${rating}점`)).join("")}
+          </div>
+        </div>
+        <div>
+          <span>반응</span>
+          <div class="review-filter-pills">
+            ${reviewFilterButton("reaction", "all", "전체")}
+            ${reviewFilterButton("reaction", "긍정", "긍정")}
+            ${reviewFilterButton("reaction", "부정", "부정")}
+            ${reviewFilterButton("reaction", "중립", "중립")}
+          </div>
+        </div>
+      </div>
+
+      <div class="review-analysis-grid first">
+        ${ratingDistributionPanel(rows)}
+        ${reactionSizePanel(rows)}
+        ${issuePanel(rows)}
+        <section class="review-analysis-card">
+          <h4>채널별 현황</h4>
+          ${reviewStatsTable(rows, (review) => review.channel, "채널")}
+        </section>
+      </div>
+
+      <div class="review-analysis-grid second">
+        <section class="review-analysis-card">
+          <h4>시즌별 현황</h4>
+          ${reviewStatsTable(rows, (review) => seasonCode(review.styleCode), "시즌")}
+        </section>
+        <section class="review-analysis-card">
+          <h4>카테고리별 현황 <small>${numberFormat.format(new Set(rows.map((review) => reviewProductCategoryName(review.productName))).size)}종</small></h4>
+          ${reviewStatsTable(rows, (review) => reviewProductCategoryName(review.productName), "카테고리")}
+        </section>
+      </div>
+
+      ${reviewCardList(rows, "negative")}
+      ${reviewCardList(rows, "positive")}
+    </section>`;
+}
+
+function renderStyleReviewInsight(styleCode) {
+  const row = baseRows().find((item) => item.styleCode === styleCode);
+  const style = byStyle.get(styleCode) || row || {};
+
   const insight = reviewInsights[styleCode];
   const styleName = style.styleName || style.productName || insight?.styleName || styleCode;
   const analyzed = Number(insight?.analyzedReviews || 0);
@@ -680,9 +1122,10 @@ function openReviewInsightModal(styleCode = state.detailStyleCode) {
   document.getElementById("reviewInsightTitle").textContent = `${styleCode} 리뷰 인사이트`;
 
   if (!insight) {
-    body.innerHTML = `<div class="empty">아직 이 스타일의 리뷰 인사이트 데이터가 없습니다. 리뷰 수집 스크립트를 실행하면 표시됩니다.</div>`;
-  } else {
-    body.innerHTML = `
+    return `<div class="empty">아직 이 스타일의 리뷰 인사이트 데이터가 없습니다. 구글시트에 해당 스타일코드 리뷰가 있으면 다음 업데이트 때 표시됩니다.</div>`;
+  }
+
+  return `
       <section class="review-hero">
         <div>
           <p class="eyebrow">STYLE REVIEW</p>
@@ -704,16 +1147,16 @@ function openReviewInsightModal(styleCode = state.detailStyleCode) {
       <section class="review-summary-panel">
         <h3>많이 나온 리뷰 흐름</h3>
         ${(insight.summary || []).map((line) => `<p>${escapeHtml(line)}</p>`).join("")}
-        <small>${escapeHtml(window.WHOAU_REVIEW_INSIGHTS?.sourceNote || "")}</small>
+        <small>${escapeHtml(reviewPayload.sourceNote || "")}</small>
       </section>
       <div class="review-keyword-grid">
         <section>
-          <h3>긍정 키워드</h3>
-          <div class="review-chip-list">${insightKeywordChips(insight.positiveKeywords || [], "긍정 키워드 없음")}</div>
+          <h3>이슈 태그</h3>
+          <div class="review-chip-list">${insightKeywordChips(insight.issueTags || insight.positiveKeywords || [], "이슈 태그 없음")}</div>
         </section>
         <section>
-          <h3>부정 키워드</h3>
-          <div class="review-chip-list negative">${insightKeywordChips(insight.negativeKeywords || [], "부정 키워드 없음")}</div>
+          <h3>사이즈 반응</h3>
+          <div class="review-chip-list">${insightKeywordChips(insight.sizeTags || [], "사이즈 반응 없음")}</div>
         </section>
       </div>
       <div class="review-columns">
@@ -726,7 +1169,12 @@ function openReviewInsightModal(styleCode = state.detailStyleCode) {
           ${insightReviewCards(insight.negativeReviews || [], "부정 대표 리뷰가 없습니다.")}
         </section>
       </div>`;
-  }
+}
+
+function openReviewInsightModal(styleCode = "") {
+  const modal = document.getElementById("reviewInsightModal");
+  const body = document.getElementById("reviewInsightBody");
+  body.innerHTML = styleCode ? renderStyleReviewInsight(styleCode) : renderReviewOverview();
 
   modal.hidden = false;
   document.body.classList.add("modal-open");
@@ -817,7 +1265,6 @@ function openDetailModal(styleCode) {
         <span>${escapeHtml(styleCode)}</span>
         <h3>${escapeHtml(style.styleName || style.productName || "-")}</h3>
         <p>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)} · ${escapeHtml(style.categoryMid || style.categoryLarge || "-")}</p>
-        <button class="modal-secondary product-review-button" type="button" data-review-insight-style="${escapeHtml(styleCode)}">리뷰 인사이트</button>
       </div>
     </aside>
     <section class="modal-content">
@@ -843,6 +1290,7 @@ function openDetailModal(styleCode) {
         </div>
         ${trendChart(style)}
       </section>
+      ${inlineStyleReviews(styleCode)}
     </section>
   </div>`;
 
@@ -896,6 +1344,8 @@ document.getElementById("metricSwitcher").addEventListener("click", (event) => {
   render();
 });
 
+document.getElementById("globalReviewInsightButton").addEventListener("click", () => openReviewInsightModal());
+
 document.getElementById("seasonTabs").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-season]");
   if (!button) return;
@@ -934,9 +1384,9 @@ document.getElementById("categoryCards").addEventListener("click", (event) => {
 });
 
 document.getElementById("topList").addEventListener("click", (event) => {
-  const button = event.target.closest(".thumb-button[data-style]");
-  if (!button) return;
-  openDetailModal(button.dataset.style);
+  const target = event.target.closest(".thumb-button[data-style], .rank-row[data-style]");
+  if (!target) return;
+  openDetailModal(target.dataset.style);
 });
 
 document.getElementById("searchInput").addEventListener("input", (event) => {
@@ -960,7 +1410,35 @@ document.getElementById("coPurchaseModal").addEventListener("click", (event) => 
   if (event.target.id === "coPurchaseModal") closeCoPurchaseModal();
 });
 document.getElementById("reviewInsightModal").addEventListener("click", (event) => {
+  const filterButton = event.target.closest("button[data-review-filter]");
+  if (filterButton) {
+    reviewDashboardState[filterButton.dataset.reviewFilter] = filterButton.dataset.value;
+    document.getElementById("reviewInsightBody").innerHTML = renderReviewOverview();
+    return;
+  }
+  if (event.target.closest("button[data-review-refresh]")) {
+    window.location.reload();
+    return;
+  }
+  const styleButton = event.target.closest("button[data-review-style]");
+  if (styleButton) {
+    openReviewInsightModal(styleButton.dataset.reviewStyle);
+    return;
+  }
   if (event.target.id === "reviewInsightModal") closeReviewInsightModal();
+});
+document.getElementById("reviewInsightModal").addEventListener("input", (event) => {
+  if (event.target.id !== "reviewSearchInput") return;
+  reviewDashboardState.query = event.target.value;
+  document.getElementById("reviewInsightBody").innerHTML = renderReviewOverview();
+  const input = document.getElementById("reviewSearchInput");
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+});
+document.getElementById("reviewInsightModal").addEventListener("change", (event) => {
+  if (event.target.id !== "reviewCategorySelect") return;
+  reviewDashboardState.category = event.target.value;
+  document.getElementById("reviewInsightBody").innerHTML = renderReviewOverview();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;

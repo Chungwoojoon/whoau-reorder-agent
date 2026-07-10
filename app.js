@@ -978,7 +978,13 @@ function inlineReviewList(rows, emptyText) {
 function inlineStyleReviews(styleCode) {
   const rows = styleReviewRows(styleCode);
   const positiveRows = rows.filter((review) => review.reaction === "긍정");
-  const negativeRows = rows.filter((review) => review.reaction === "부정" || review.note);
+  const negativeRows = rows
+    .filter((review) => review.reaction === "부정" || review.note)
+    .sort((a, b) => {
+      const ratingA = Number(a.rating || 99);
+      const ratingB = Number(b.rating || 99);
+      return ratingA - ratingB || reviewDateValue(b.reviewDate) - reviewDateValue(a.reviewDate);
+    });
   const now = Date.now();
   const recentWeekCount = rows.filter((review) => {
     const time = reviewDateValue(review.reviewDate);

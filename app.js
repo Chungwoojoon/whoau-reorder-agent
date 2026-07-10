@@ -879,7 +879,14 @@ function reviewCardList(rows, kind) {
   const isNegative = kind === "negative";
   const title = isNegative ? "부정·지적 리뷰 우선 대응" : "긍정 리뷰";
   const filtered = rows.filter((row) => isNegative ? row.reaction === "부정" || row.note : row.reaction === "긍정");
-  const sample = filtered.slice(0, 100);
+  const sample = (isNegative
+    ? [...filtered].sort((a, b) => {
+      const ratingA = Number(a.rating || 99);
+      const ratingB = Number(b.rating || 99);
+      return ratingA - ratingB || reviewDateValue(b.reviewDate) - reviewDateValue(a.reviewDate);
+    })
+    : filtered
+  ).slice(0, 100);
   return `<section class="review-long-list-panel ${isNegative ? "negative" : "positive"}">
     <h4>${title} <small>${numberFormat.format(filtered.length)}건</small></h4>
     <div class="review-long-list">${sample.map((review) => `<article>

@@ -879,14 +879,7 @@ function reviewCardList(rows, kind) {
   const isNegative = kind === "negative";
   const title = isNegative ? "부정·지적 리뷰 우선 대응" : "긍정 리뷰";
   const filtered = rows.filter((row) => isNegative ? row.reaction === "부정" || row.note : row.reaction === "긍정");
-  const sample = (isNegative
-    ? [...filtered].sort((a, b) => {
-      const ratingA = Number(a.rating || 99);
-      const ratingB = Number(b.rating || 99);
-      return ratingA - ratingB || reviewDateValue(b.reviewDate) - reviewDateValue(a.reviewDate);
-    })
-    : filtered
-  ).slice(0, 100);
+  const sample = (isNegative ? sortNegativeReviews(filtered) : sortPositiveReviews(filtered)).slice(0, 100);
   return `<section class="review-long-list-panel ${isNegative ? "negative" : "positive"}">
     <h4>${title} <small>${numberFormat.format(filtered.length)}건</small></h4>
     <div class="review-long-list">${sample.map((review) => `<article>
@@ -939,6 +932,27 @@ function reviewDateValue(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function reviewRatingValue(review, fallback) {
+  const rating = Number(review?.rating ?? review?.score);
+  return Number.isFinite(rating) && rating > 0 ? rating : fallback;
+}
+
+function sortPositiveReviews(rows) {
+  return [...rows].sort((a, b) => {
+    const ratingA = reviewRatingValue(a, -1);
+    const ratingB = reviewRatingValue(b, -1);
+    return ratingB - ratingA || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
+  });
+}
+
+function sortNegativeReviews(rows) {
+  return [...rows].sort((a, b) => {
+    const ratingA = reviewRatingValue(a, 99);
+    const ratingB = reviewRatingValue(b, 99);
+    return ratingA - ratingB || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
+  });
+}
+
 function reviewAvgText(rows) {
   const rated = rows.filter((review) => Number(review.rating) > 0);
   if (!rated.length) return "0.0점";
@@ -977,14 +991,8 @@ function inlineReviewList(rows, emptyText) {
 
 function inlineStyleReviews(styleCode) {
   const rows = styleReviewRows(styleCode);
-  const positiveRows = rows.filter((review) => review.reaction === "긍정");
-  const negativeRows = rows
-    .filter((review) => review.reaction === "부정" || review.note)
-    .sort((a, b) => {
-      const ratingA = Number(a.rating || 99);
-      const ratingB = Number(b.rating || 99);
-      return ratingA - ratingB || reviewDateValue(b.reviewDate) - reviewDateValue(a.reviewDate);
-    });
+  const positiveRows = sortPositiveReviews(rows.filter((review) => review.reaction === "긍정"));
+  const negativeRows = sortNegativeReviews(rows.filter((review) => review.reaction === "부정" || review.note));
   const now = Date.now();
   const recentWeekCount = rows.filter((review) => {
     const time = reviewDateValue(review.reviewDate);
@@ -1175,11 +1183,11 @@ function renderStyleReviewInsight(styleCode) {
       <div class="review-columns">
         <section>
           <h3>긍정 대표 리뷰</h3>
-          ${insightReviewCards(insight.positiveReviews || [], "긍정 대표 리뷰가 없습니다.")}
+          ${insightReviewCards(sortPositiveReviews(insight.positiveReviews || []), "긍정 대표 리뷰가 없습니다.")}
         </section>
         <section>
           <h3>부정 대표 리뷰</h3>
-          ${insightReviewCards(insight.negativeReviews || [], "부정 대표 리뷰가 없습니다.")}
+          ${insightReviewCards(sortNegativeReviews(insight.negativeReviews || []), "부정 대표 리뷰가 없습니다.")}
         </section>
       </div>`;
 }

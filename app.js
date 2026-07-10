@@ -947,9 +947,11 @@ function sortPositiveReviews(rows) {
 
 function sortNegativeReviews(rows) {
   return [...rows].sort((a, b) => {
+    const issueCountA = (a.issueTags || []).length + (a.note ? 1 : 0);
+    const issueCountB = (b.issueTags || []).length + (b.note ? 1 : 0);
     const ratingA = reviewRatingValue(a, 99);
     const ratingB = reviewRatingValue(b, 99);
-    return ratingA - ratingB || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
+    return issueCountB - issueCountA || ratingA - ratingB || reviewDateValue(b.reviewDate || b.date) - reviewDateValue(a.reviewDate || a.date);
   });
 }
 

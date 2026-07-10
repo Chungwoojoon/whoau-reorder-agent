@@ -1,0 +1,69 @@
+name: Weekly data update
+
+on:
+  schedule:
+    # 09:30 KST every Monday.
+    - cron: "30 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-weekly-data:
+    runs-on: windows-latest
+    env:
+      DAAS_DB_HOST: ${{ secrets.DAAS_DB_HOST }}
+      DAAS_DB_PORT: ${{ secrets.DAAS_DB_PORT }}
+      DAAS_DB_NAME: ${{ secrets.DAAS_DB_NAME }}
+      DAAS_DB_USER: ${{ secrets.DAAS_DB_USER }}
+      DAAS_DB_PASSWORD: ${{ secrets.DAAS_DB_PASSWORD }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate DaaS data
+        run: npm run generate:daas
+
+      - name: Refresh WHO.AU images
+        shell: pwsh
+        run: ./scripts/fetch-whoau-images.ps1
+
+      - name: Generate review insights
+        run: npm run generate:review-insights
+
+      - name: Commit updated data
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/app-data.js data/image-map.js data/review-insights.js
+          if (git diff --cached --quiet) {
+            Write-Host "No weekly data changes to commit."
+          } else {
+            git commit -m "Update weekly dashboard data"
+            git push
+          }
+
+      - name: Deploy to Vercel
+        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .vercel | Out-Null
+          @{ orgId = $env:VERCEL_ORG_ID; projectId = $env:VERCEL_PROJECT_ID } |
+            ConvertTo-Json -Compress |
+            Set-Content -Path .vercel/project.json -Encoding UTF8
+          npx vercel@latest deploy --prod --yes --token "$env:VERCEL_TOKEN"

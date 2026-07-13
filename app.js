@@ -528,6 +528,46 @@ function actualWeeks(style) {
   return (style.weekly || []).filter((week) => !String(week.label || "").startsWith("W+"));
 }
 
+function currentDataYear() {
+  return Number(String(sourceData.generatedAt || "").slice(0, 4)) || new Date().getFullYear();
+}
+
+function parseWeekLabelDate(label, part = "start") {
+  const match = String(label || "").match(/^(\d{2})\/(\d{2})~(\d{2})\/(\d{2})$/);
+  if (!match) return null;
+  const year = currentDataYear();
+  const startMonth = Number(match[1]);
+  const startDay = Number(match[2]);
+  const endMonth = Number(match[3]);
+  const endDay = Number(match[4]);
+  if (part === "end") {
+    return new Date(endMonth < startMonth ? year + 1 : year, endMonth - 1, endDay);
+  }
+  return new Date(year, startMonth - 1, startDay);
+}
+
+function formatYmdLabel(value) {
+  const text = String(value || "");
+  if (!/^\d{8}$/.test(text)) return "";
+  return `${text.slice(4, 6)}/${text.slice(6, 8)}`;
+}
+
+function firstSalesWeek(style) {
+  return actualWeeks(style).find((week) => Number(week.actualQty || 0) > 0) || null;
+}
+
+function salesWeekCount(style) {
+  if (Number(style.salesWeeks || 0) > 0) return Number(style.salesWeeks);
+  const first = firstSalesWeek(style);
+  if (!first) return 0;
+  const last = latestWeeklyRow(style) || actualWeeks(style).at(-1);
+  const start = parseWeekLabelDate(first.label, "start");
+  const end = parseWeekLabelDate(last?.label, "end");
+  if (!start || !end) return 0;
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime() + dayMs) / (7 * dayMs)));
+}
+
 function trendChart(style) {
   const weeks = actualWeeks(style);
   if (!weeks.length) return `<div class="chart-empty">판매 추이 데이터가 없습니다.</div>`;
@@ -1280,6 +1320,9 @@ function openDetailModal(styleCode) {
   const inboundAmount = inboundQty * price;
   const channels = channelBreakdown(weekly, weeklyQty);
   const topStore = weekly.topStore || { name: "-", qty: 0, channel: "offline" };
+  const firstSale = firstSalesWeek(style);
+  const firstSaleText = formatYmdLabel(style.firstSaleDate) || firstSale?.label || "";
+  const salesWeeks = salesWeekCount(style);
   state.detailStyleCode = styleCode;
   const coButton = document.getElementById("coPurchaseButton");
   coButton.disabled = !(style.coPurchases || []).length;
@@ -1309,6 +1352,7 @@ function openDetailModal(styleCode) {
         ${detailRow("현재 재고", `${numberFormat.format(stock)}pcs`, `재고율 ${percent(stock, inboundQty)}`)}
         ${channelRows(channels, weeklyQty)}
         ${detailRow("최다 판매 매장", topStore.name || "-", `${numberFormat.format(topStore.qty || 0)}pcs · ${CHANNEL_LABELS[topStore.channel] || topStore.channel || "-"}`)}
+        ${detailRow("판매 주수", salesWeeks ? `${numberFormat.format(salesWeeks)}주` : "-", firstSaleText ? `첫 판매 ${firstSaleText}` : "")}
       </div>
       <section class="chart-panel">
         <div class="chart-head">

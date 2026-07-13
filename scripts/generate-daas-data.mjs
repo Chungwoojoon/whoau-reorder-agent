@@ -65,6 +65,12 @@ function parseYmd(value) {
   return new Date(Number(text.slice(0, 4)), Number(text.slice(4, 6)) - 1, Number(text.slice(6, 8)));
 }
 
+function salesWeeksBetween(firstSaleDate, endDate) {
+  if (!firstSaleDate) return 0;
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.ceil((endDate.getTime() - firstSaleDate.getTime() + dayMs) / (7 * dayMs)));
+}
+
 function toNumber(value) {
   return Number(value || 0);
 }
@@ -383,10 +389,14 @@ let latestAvailableDate = "";
 for (const style of grouped.values()) {
   const weeklyMap = new Map();
   const totalChannels = emptyChannels();
+  let firstSaleDate = null;
 
   for (const day of style.days) {
     if (day.calday > latestAvailableDate) latestAvailableDate = day.calday;
     const date = parseYmd(day.calday);
+    if (toNumber(day.sale_qty) > 0 && (!firstSaleDate || date < firstSaleDate)) {
+      firstSaleDate = date;
+    }
     const start = weekStart(date);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
@@ -472,6 +482,8 @@ for (const style of grouped.values()) {
     totalNormalQty: Math.round(cumulativeNormalQty),
     totalSalesAmount: Math.round(cumulativeSalesAmount),
     totalNormalAmount: Math.round(cumulativeNormalAmount),
+    firstSaleDate: firstSaleDate ? ymd(firstSaleDate) : "",
+    salesWeeks: salesWeeksBetween(firstSaleDate, targetWeek.end),
     channelSales: Object.fromEntries(Object.entries(totalChannels).map(([key, value]) => [key, {
       qty: Math.round(value.qty),
       amount: Math.round(value.amount),

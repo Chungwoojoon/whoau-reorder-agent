@@ -4,6 +4,7 @@ $scriptRoot = $PSScriptRoot
 $projectRoot = Split-Path -Parent $scriptRoot
 $logDir = Join-Path $projectRoot "logs"
 $logPath = Join-Path $logDir "weekly-sales-update.log"
+$statusPath = Join-Path $projectRoot "data\sales-update-status.json"
 
 if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
@@ -14,6 +15,17 @@ function Write-Log {
   $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
   Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
   Write-Host $line
+}
+
+function Write-SalesStatus {
+  param([string]$Status)
+  $payload = [ordered]@{
+    status = $Status
+    businessDate = (Get-Date).ToString("yyyy-MM-dd")
+    updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    source = "local-windows-scheduler"
+  }
+  $payload | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $statusPath -Encoding UTF8
 }
 
 Push-Location $projectRoot
@@ -29,7 +41,9 @@ try {
 
 Push-Location $projectRoot
 try {
+  Write-SalesStatus "success"
   git add data/app-data.js data/image-map.js
+  git add data/sales-update-status.json
   $hasChanges = -not (git diff --cached --quiet)
   if ($hasChanges) {
     git commit -m "Update weekly sales dashboard data"

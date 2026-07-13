@@ -26,6 +26,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Wait for sales update
+        run: |
+          target_date="$(TZ=Asia/Seoul date +%F)"
+          echo "Waiting for local sales update marker for ${target_date}."
+          for attempt in $(seq 1 36); do
+            git fetch origin main
+            marker="$(git show origin/main:data/sales-update-status.json 2>/dev/null || true)"
+            if [ -n "$marker" ]; then
+              marker_date="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8"); try { console.log(JSON.parse(text).businessDate || ""); } catch { console.log(""); }' <<< "$marker")"
+              marker_status="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8"); try { console.log(JSON.parse(text).status || ""); } catch { console.log(""); }' <<< "$marker")"
+              echo "Attempt ${attempt}: marker date=${marker_date}, status=${marker_status}"
+              if [ "$marker_date" = "$target_date" ] && [ "$marker_status" = "success" ]; then
+                git reset --hard origin/main
+                echo "Sales update marker is ready."
+                exit 0
+              fi
+            else
+              echo "Attempt ${attempt}: sales update marker not found."
+            fi
+            sleep 300
+          done
+          echo "Sales update marker for ${target_date} was not found in time."
+          exit 1
+
       - name: Generate review insights
         run: npm run generate:review-insights
 

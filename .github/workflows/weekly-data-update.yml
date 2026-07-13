@@ -1,9 +1,6 @@
 name: Weekly data update
 
 on:
-  schedule:
-    # 09:30 KST every Monday.
-    - cron: "30 0 * * 1"
   workflow_dispatch:
 
 permissions:

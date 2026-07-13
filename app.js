@@ -532,14 +532,17 @@ function currentDataYear() {
   return Number(String(sourceData.generatedAt || "").slice(0, 4)) || new Date().getFullYear();
 }
 
-function parseWeekLabelDate(label, part = "start") {
+function parseWeekLabelDate(label, part = "start", referenceLabel = "") {
   const match = String(label || "").match(/^(\d{2})\/(\d{2})~(\d{2})\/(\d{2})$/);
   if (!match) return null;
-  const year = currentDataYear();
+  let year = currentDataYear();
   const startMonth = Number(match[1]);
   const startDay = Number(match[2]);
   const endMonth = Number(match[3]);
   const endDay = Number(match[4]);
+  const referenceMatch = String(referenceLabel || "").match(/^(\d{2})\/(\d{2})~(\d{2})\/(\d{2})$/);
+  const referenceEndMonth = referenceMatch ? Number(referenceMatch[3]) : 0;
+  if (referenceEndMonth && startMonth > referenceEndMonth) year -= 1;
   if (part === "end") {
     return new Date(endMonth < startMonth ? year + 1 : year, endMonth - 1, endDay);
   }
@@ -561,8 +564,8 @@ function salesWeekCount(style) {
   const first = firstSalesWeek(style);
   if (!first) return 0;
   const last = latestWeeklyRow(style) || actualWeeks(style).at(-1);
-  const start = parseWeekLabelDate(first.label, "start");
-  const end = parseWeekLabelDate(last?.label, "end");
+  const start = parseWeekLabelDate(first.label, "start", last?.label);
+  const end = parseWeekLabelDate(last?.label, "end", last?.label);
   if (!start || !end) return 0;
   const dayMs = 24 * 60 * 60 * 1000;
   return Math.max(1, Math.ceil((end.getTime() - start.getTime() + dayMs) / (7 * dayMs)));

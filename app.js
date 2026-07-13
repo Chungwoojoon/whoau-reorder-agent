@@ -878,7 +878,7 @@ function issuePanel(rows) {
 function reviewCardList(rows, kind) {
   const isNegative = kind === "negative";
   const title = isNegative ? "부정·지적 리뷰 우선 대응" : "긍정 리뷰";
-  const filtered = rows.filter((row) => isNegative ? row.reaction === "부정" || row.note : row.reaction === "긍정");
+  const filtered = rows.filter((row) => isNegative ? isNegativeDisplayReview(row) : row.reaction === "긍정");
   const sample = (isNegative ? sortNegativeReviews(filtered) : sortPositiveReviews(filtered)).slice(0, 100);
   return `<section class="review-long-list-panel ${isNegative ? "negative" : "positive"}">
     <h4>${title} <small>${numberFormat.format(filtered.length)}건</small></h4>
@@ -935,6 +935,11 @@ function reviewDateValue(value) {
 function reviewRatingValue(review, fallback) {
   const rating = Number(review?.rating ?? review?.score);
   return Number.isFinite(rating) && rating > 0 ? rating : fallback;
+}
+
+function isNegativeDisplayReview(review) {
+  const rating = reviewRatingValue(review, 0);
+  return rating >= 1 && rating <= 4 && (review.reaction === "부정" || review.note);
 }
 
 function sortPositiveReviews(rows) {
@@ -996,7 +1001,7 @@ function inlineReviewList(rows, emptyText) {
 function inlineStyleReviews(styleCode) {
   const rows = styleReviewRows(styleCode);
   const positiveRows = sortPositiveReviews(rows.filter((review) => review.reaction === "긍정"));
-  const negativeRows = sortNegativeReviews(rows.filter((review) => review.reaction === "부정" || review.note));
+  const negativeRows = sortNegativeReviews(rows.filter(isNegativeDisplayReview));
   const now = Date.now();
   const recentWeekCount = rows.filter((review) => {
     const time = reviewDateValue(review.reviewDate);
@@ -1191,7 +1196,7 @@ function renderStyleReviewInsight(styleCode) {
         </section>
         <section>
           <h3>부정 대표 리뷰</h3>
-          ${insightReviewCards(sortNegativeReviews(insight.negativeReviews || []), "부정 대표 리뷰가 없습니다.")}
+          ${insightReviewCards(sortNegativeReviews((insight.negativeReviews || []).filter(isNegativeDisplayReview)), "부정 대표 리뷰가 없습니다.")}
         </section>
       </div>`;
 }

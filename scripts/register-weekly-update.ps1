@@ -13,7 +13,7 @@ $action = New-ScheduledTaskAction `
   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updateScript`"" `
   -WorkingDirectory $projectRoot
 
-$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 9:30am
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 8:00am
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -AllowStartIfOnBatteries `
@@ -24,9 +24,9 @@ Register-ScheduledTask `
   -Action $action `
   -Trigger $trigger `
   -Settings $settings `
-  -Description "Refreshes WHO.A.U weekly sales Top 20 data and official whoau.com images every Monday at 09:30." `
+  -Description "Refreshes WHO.A.U weekly sales Top 20 data and official whoau.com images every Monday at 08:00." `
   -Force | Out-Null
 
 Write-Host "Registered scheduled task: $taskName"
-Write-Host "Schedule: every Monday at 09:30"
+Write-Host "Schedule: every Monday at 08:00"
 Write-Host "Script: $updateScript"

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = $PSScriptRoot
 $projectRoot = Split-Path -Parent $scriptRoot
 $logDir = Join-Path $projectRoot "logs"
-$logPath = Join-Path $logDir "weekly-update.log"
+$logPath = Join-Path $logDir "weekly-sales-update.log"
 
 if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
@@ -29,16 +29,14 @@ try {
 
 Push-Location $projectRoot
 try {
-  npm.cmd run generate:review-insights
-
-  git add data/app-data.js data/image-map.js data/review-insights.js
+  git add data/app-data.js data/image-map.js
   $hasChanges = -not (git diff --cached --quiet)
   if ($hasChanges) {
-    git commit -m "Update weekly dashboard data"
+    git commit -m "Update weekly sales dashboard data"
     git push origin main
-    Write-Log "Data changes committed and pushed."
+    Write-Log "Sales data changes committed and pushed."
   } else {
-    Write-Log "No data changes to commit."
+    Write-Log "No sales data changes to commit."
   }
 
   $vercel = Get-Command vercel.cmd -ErrorAction SilentlyContinue
@@ -49,7 +47,7 @@ try {
     Write-Log "vercel.cmd was not found; skipped deployment."
   }
 
-  Write-Log "Weekly update finished."
+  Write-Log "Weekly sales update finished."
 } finally {
   Pop-Location
 }

@@ -274,12 +274,10 @@ try {
     `, [materials]);
     styleNameRows = namesResult.rows;
     const inventoryResult = await client.query(`
-      WITH filtered AS (
+      WITH cumulative_filtered AS (
         SELECT
           LEFT(material, 10) AS material,
           COALESCE(ipgo_qty, 0) AS inbound_qty,
-          COALESCE(ordqty, 0) AS order_qty,
-          COALESCE(ordamt, 0) AS order_amt,
           COALESCE(sale, 0) AS sale_qty,
           COALESCE(saleamt, 0) AS sale_amt,
           COALESCE(salejung, 0) AS normal_qty,
@@ -292,19 +290,52 @@ try {
           AND LEFT(material, 10) = ANY($3)
           AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
           AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+      ),
+      order_filtered AS (
+        SELECT
+          LEFT(material, 10) AS material,
+          COALESCE(ordqty, 0) AS order_qty,
+          COALESCE(ordamt, 0) AS order_amt
+        FROM fpw.total_mart
+        WHERE LENGTH(calday) = 8
+          AND calday ~ '^[0-9]{8}$'
+          AND material LIKE 'WH%'
+          AND LEFT(material, 10) = ANY($3)
+          AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+          AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+      ),
+      cumulative AS (
+        SELECT
+          material,
+          COALESCE(SUM(inbound_qty), 0) AS inbound_qty,
+          COALESCE(SUM(sale_qty), 0) AS total_qty,
+          COALESCE(SUM(sale_amt), 0) AS total_sales_amount,
+          COALESCE(SUM(normal_qty), 0) AS total_normal_qty,
+          COALESCE(SUM(normal_amt), 0) AS total_normal_amount,
+          COALESCE(SUM(inbound_qty) - SUM(sale_qty), 0) AS stock_qty
+        FROM cumulative_filtered
+        GROUP BY material
+      ),
+      orders AS (
+        SELECT
+          material,
+          COALESCE(SUM(order_qty), 0) AS order_qty,
+          COALESCE(SUM(order_amt), 0) AS order_amt
+        FROM order_filtered
+        GROUP BY material
       )
       SELECT
-        material,
-        COALESCE(SUM(inbound_qty), 0) AS inbound_qty,
-        COALESCE(SUM(order_qty), 0) AS order_qty,
-        COALESCE(SUM(order_amt), 0) AS order_amt,
-        COALESCE(SUM(sale_qty), 0) AS total_qty,
-        COALESCE(SUM(sale_amt), 0) AS total_sales_amount,
-        COALESCE(SUM(normal_qty), 0) AS total_normal_qty,
-        COALESCE(SUM(normal_amt), 0) AS total_normal_amount,
-        COALESCE(SUM(inbound_qty) - SUM(sale_qty), 0) AS stock_qty
-      FROM filtered
-      GROUP BY material
+        c.material,
+        c.inbound_qty,
+        COALESCE(o.order_qty, 0) AS order_qty,
+        COALESCE(o.order_amt, 0) AS order_amt,
+        c.total_qty,
+        c.total_sales_amount,
+        c.total_normal_qty,
+        c.total_normal_amount,
+        c.stock_qty
+      FROM cumulative c
+      LEFT JOIN orders o ON c.material = o.material
     `, [cumulativeStart, targetWeek.endYmd, materials]);
     inventoryRows = inventoryResult.rows;
     const coPurchaseResult = await client.query(`

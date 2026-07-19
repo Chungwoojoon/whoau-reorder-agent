@@ -292,8 +292,11 @@ try {
           AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
       ),
       order_filtered AS (
-        SELECT
+        SELECT DISTINCT
           LEFT(material, 10) AS material,
+          material AS sku_material,
+          calday,
+          plant,
           COALESCE(ordqty, 0) AS order_qty,
           COALESCE(ordamt, 0) AS order_amt
         FROM fpw.total_mart

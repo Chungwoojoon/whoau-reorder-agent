@@ -71,7 +71,8 @@ button {
   background: var(--navy);
 }
 
-.metric-switcher .review-nav-button {
+.metric-switcher .review-nav-button,
+.metric-switcher .daily-nav-button {
   min-width: 124px;
   margin-left: 8px;
   border-color: rgba(31, 120, 209, 0.3);
@@ -79,7 +80,8 @@ button {
   background: var(--blue);
 }
 
-.metric-switcher .review-nav-button:hover {
+.metric-switcher .review-nav-button:hover,
+.metric-switcher .daily-nav-button:hover {
   border-color: var(--navy);
   background: var(--navy);
 }
@@ -654,6 +656,16 @@ h2 {
   box-shadow: 0 24px 80px rgba(17, 32, 47, 0.28);
 }
 
+.daily-sales-modal {
+  width: min(1260px, calc(100vw - 24px));
+  max-height: min(900px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(17, 32, 47, 0.28);
+}
+
 .review-insight-modal > .modal-head {
   display: none;
 }
@@ -670,6 +682,68 @@ h2 {
   max-height: min(900px, calc(100vh - 24px));
   overflow: auto;
   padding: 0;
+}
+
+.daily-sales-body {
+  max-height: calc(min(900px, 100vh - 24px) - 76px);
+  overflow: auto;
+  padding: 18px;
+}
+
+.daily-sales-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.daily-sales-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.daily-sales-summary article {
+  min-height: 86px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffaf1;
+}
+
+.daily-sales-summary span,
+.daily-sales-summary small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.daily-sales-summary strong {
+  display: block;
+  margin: 6px 0 3px;
+  color: var(--navy);
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.daily-sales-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.daily-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.daily-leaderboard {
+  margin: 0;
 }
 
 .review-app-shell {

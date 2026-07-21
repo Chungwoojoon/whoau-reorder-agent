@@ -16,6 +16,7 @@
         <button type="button" data-metric="normalAmount">정판액</button>
         <button type="button" data-metric="normalRate">정판율</button>
         <button class="review-nav-button" id="globalReviewInsightButton" type="button">리뷰 인사이트</button>
+        <button class="daily-nav-button" id="dailySalesButton" type="button">일판량</button>
       </nav>
 
       <header class="topbar">
@@ -139,7 +140,21 @@
       </section>
     </div>
 
+    <div class="modal-backdrop nested" id="dailySalesModal" hidden>
+      <section class="daily-sales-modal" role="dialog" aria-modal="true" aria-labelledby="dailySalesTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">DAILY SALES</p>
+            <h2 id="dailySalesTitle">일판량 Top 20</h2>
+          </div>
+          <button class="modal-close" id="dailySalesClose" type="button" aria-label="닫기">×</button>
+        </header>
+        <div class="daily-sales-body" id="dailySalesBody"></div>
+      </section>
+    </div>
+
     <script src="./data/app-data.js"></script>
+    <script src="./data/daily-sales-data.js"></script>
     <script src="./data/image-map.js"></script>
     <script src="./data/review-insights.js"></script>
     <script src="./app.js"></script>

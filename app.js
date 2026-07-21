@@ -1,5 +1,6 @@
 const sourceData = window.REORDER_DATA || { styles: [] };
 const imageMap = window.WHOAU_IMAGE_MAP?.images || {};
+const dailySalesData = window.WHOAU_DAILY_SALES || { styles: [] };
 const reviewPayload = window.WHOAU_REVIEW_INSIGHTS || {};
 const reviewInsights = reviewPayload.insights || {};
 
@@ -57,6 +58,11 @@ const reviewDashboardState = {
   season: "all",
   rating: "all",
   reaction: "all",
+};
+
+const dailySalesState = {
+  category: "all",
+  query: "",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -361,6 +367,141 @@ function imageFor(row) {
   return `<button class="thumb-button" type="button" data-style="${escapeHtml(row.styleCode)}" aria-label="${escapeHtml(row.styleCode)} 상세 보기">
     <img class="thumb" src="${image.imageUrl}" alt="${escapeHtml(row.styleName || row.styleCode)}" loading="lazy" referrerpolicy="no-referrer" />
   </button>`;
+}
+
+function dailyRows() {
+  return (dailySalesData.styles || []).map((row) => {
+    const weeklyStyle = byStyle.get(row.styleCode) || {};
+    const group = categoryFor(row.styleCode);
+    return {
+      ...row,
+      productName: row.styleName,
+      itemCode: itemCode(row.styleCode),
+      itemLabel: group?.label || row.category || "기타",
+      inboundQty: Number(weeklyStyle.inboundQty || 0),
+      stock: Number(weeklyStyle.stock || 0),
+      price: Number(row.price || weeklyStyle.price || 0),
+    };
+  });
+}
+
+function filteredDailyRows() {
+  const selected = ITEM_GROUPS.find((group) => group.id === dailySalesState.category) || ITEM_GROUPS[0];
+  const query = dailySalesState.query.trim().toLowerCase();
+  return dailyRows()
+    .filter((row) => !selected.codes || selected.codes.includes(row.itemCode))
+    .filter((row) => {
+      if (!query) return true;
+      return `${row.styleCode} ${row.styleName}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => Number(b.dailyQty || 0) - Number(a.dailyQty || 0) || Number(b.dailyAmount || 0) - Number(a.dailyAmount || 0) || String(a.styleCode).localeCompare(String(b.styleCode)));
+}
+
+function renderDailyCategoryTabs(rows) {
+  return ITEM_GROUPS.map((group) => {
+    const count = group.id === "all" ? rows.length : rows.filter((row) => group.codes.includes(row.itemCode)).length;
+    const active = group.id === dailySalesState.category ? "active" : "";
+    return `<button class="${active}" type="button" data-daily-category="${group.id}">
+      <span>${escapeHtml(group.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+}
+
+function dailyImageFor(row) {
+  const image = imageMap[row.styleCode];
+  if (!image?.imageUrl) return `<div class="thumb fallback">${escapeHtml(row.itemCode)}</div>`;
+  return `<img class="thumb" src="${image.imageUrl}" alt="${escapeHtml(row.styleName || row.styleCode)}" loading="lazy" referrerpolicy="no-referrer" />`;
+}
+
+function renderDailySalesModal() {
+  const allRows = dailyRows();
+  const rows = filteredDailyRows();
+  const topRows = rows.slice(0, TOP_LIMIT);
+  const selected = ITEM_GROUPS.find((group) => group.id === dailySalesState.category) || ITEM_GROUPS[0];
+  const totalQty = rows.reduce((sum, row) => sum + Number(row.dailyQty || 0), 0);
+  const maxValue = Math.max(...topRows.map((row) => Number(row.dailyQty || 0)), 0) || 1;
+  document.getElementById("dailySalesTitle").textContent = `${selected.label} 일판량 Top ${TOP_LIMIT}`;
+  document.getElementById("dailySalesBody").innerHTML = `
+    <section class="daily-sales-shell">
+      <div class="daily-sales-summary">
+        <article>
+          <span>판매 기준일</span>
+          <strong>${escapeHtml(dailySalesData.targetDateLabel || "-")}</strong>
+          <small>전날 하루 판매</small>
+        </article>
+        <article>
+          <span>스타일</span>
+          <strong>${numberFormat.format(allRows.length)}</strong>
+          <small>일판 발생 스타일</small>
+        </article>
+        <article>
+          <span>${escapeHtml(selected.label)} 일판량</span>
+          <strong>${numberFormat.format(totalQty)}pcs</strong>
+          <small>${numberFormat.format(rows.length)}개 스타일</small>
+        </article>
+        <article>
+          <span>생성</span>
+          <strong>${escapeHtml(dailySalesData.generatedAt || "-")}</strong>
+          <small>토/일 제외 자동 갱신</small>
+        </article>
+      </div>
+      <div class="daily-sales-controls">
+        <div class="tabs daily-tabs">${renderDailyCategoryTabs(allRows)}</div>
+        <label class="search-box">
+          <span>검색</span>
+          <input id="dailySalesSearch" type="search" placeholder="스타일코드 또는 상품명" value="${escapeHtml(dailySalesState.query)}" />
+        </label>
+      </div>
+      <section class="leaderboard daily-leaderboard">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">TOP 20</p>
+            <h3>${escapeHtml(selected.label)} 일판량 Top ${TOP_LIMIT}</h3>
+          </div>
+          <p>${numberFormat.format(rows.length)}개 스타일 중 일판량 상위 ${numberFormat.format(topRows.length)}개</p>
+        </div>
+        <div class="rank-list">
+          ${topRows.length ? topRows.map((row, index) => {
+            const qty = Number(row.dailyQty || 0);
+            const bar = Math.max(4, Math.round((qty / maxValue) * 100));
+            return `<article class="rank-row daily-rank-row" data-daily-style="${escapeHtml(row.styleCode)}">
+              <div class="rank">${index + 1}</div>
+              ${dailyImageFor(row)}
+              <div class="product">
+                <div class="product-title">
+                  <strong>${escapeHtml(row.styleName || row.styleCode)}</strong>
+                  <span>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)}</span>
+                </div>
+                <div class="bar" aria-hidden="true"><span style="width:${bar}%"></span></div>
+                <div class="meta">
+                  <span>${escapeHtml(row.styleCode)}</span>
+                  <span>정판량 ${numberFormat.format(Number(row.normalQty || 0))}pcs</span>
+                  <span>입고 ${numberFormat.format(Number(row.inboundQty || 0))}pcs</span>
+                  <span>재고 ${numberFormat.format(Number(row.stock || 0))}pcs</span>
+                </div>
+              </div>
+              <div class="qty">
+                <strong>${numberFormat.format(qty)}</strong>
+                <span>pcs</span>
+                <small>${compactMoney(row.dailyAmount || qty * Number(row.price || 0))}</small>
+              </div>
+            </article>`;
+          }).join("") : `<div class="empty">조건에 맞는 일판량 데이터가 없습니다.</div>`}
+        </div>
+      </section>
+    </section>`;
+}
+
+function openDailySalesModal() {
+  renderDailySalesModal();
+  document.getElementById("dailySalesModal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeDailySalesModal() {
+  document.getElementById("dailySalesModal").hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function renderTabs() {
@@ -1475,6 +1616,8 @@ document.getElementById("modalClose").addEventListener("click", closeDetailModal
 document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
 document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
 document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
+document.getElementById("dailySalesButton").addEventListener("click", openDailySalesModal);
+document.getElementById("dailySalesClose").addEventListener("click", closeDailySalesModal);
 document.getElementById("modalBody").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-review-insight-style]");
   if (!button) return;
@@ -1504,6 +1647,29 @@ document.getElementById("reviewInsightModal").addEventListener("click", (event) 
   }
   if (event.target.id === "reviewInsightModal") closeReviewInsightModal();
 });
+document.getElementById("dailySalesModal").addEventListener("click", (event) => {
+  const categoryButton = event.target.closest("button[data-daily-category]");
+  if (categoryButton) {
+    dailySalesState.category = categoryButton.dataset.dailyCategory;
+    renderDailySalesModal();
+    return;
+  }
+  const row = event.target.closest(".daily-rank-row[data-daily-style]");
+  if (row && byStyle.has(row.dataset.dailyStyle)) {
+    closeDailySalesModal();
+    openDetailModal(row.dataset.dailyStyle);
+    return;
+  }
+  if (event.target.id === "dailySalesModal") closeDailySalesModal();
+});
+document.getElementById("dailySalesModal").addEventListener("input", (event) => {
+  if (event.target.id !== "dailySalesSearch") return;
+  dailySalesState.query = event.target.value;
+  renderDailySalesModal();
+  const input = document.getElementById("dailySalesSearch");
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+});
 document.getElementById("reviewInsightModal").addEventListener("input", (event) => {
   if (event.target.id !== "reviewSearchInput") return;
   reviewDashboardState.query = event.target.value;
@@ -1520,6 +1686,7 @@ document.getElementById("reviewInsightModal").addEventListener("change", (event)
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!document.getElementById("reviewInsightModal").hidden) closeReviewInsightModal();
+  else if (!document.getElementById("dailySalesModal").hidden) closeDailySalesModal();
   else if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
   else if (!document.getElementById("detailModal").hidden) closeDetailModal();
 });

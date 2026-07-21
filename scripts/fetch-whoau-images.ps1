@@ -3,11 +3,27 @@ $ProgressPreference = "SilentlyContinue"
 
 $root = Split-Path -Parent $PSScriptRoot
 $dataPath = Join-Path $root "data\app-data.js"
+$dailyDataPath = Join-Path $root "data\daily-sales-data.js"
 $outPath = Join-Path $root "data\image-map.js"
 
 $raw = Get-Content -LiteralPath $dataPath -Raw -Encoding UTF8
 $json = ($raw -replace "^window\.REORDER_DATA = ", "") -replace ";\s*$", ""
 $data = $json | ConvertFrom-Json
+$existingImages = @{}
+if (Test-Path -LiteralPath $outPath) {
+  $imageRaw = Get-Content -LiteralPath $outPath -Raw -Encoding UTF8
+  $imageJson = ($imageRaw -replace "^window\.WHOAU_IMAGE_MAP = ", "") -replace ";\s*$", ""
+  $imageData = $imageJson | ConvertFrom-Json
+  foreach ($property in $imageData.images.PSObject.Properties) {
+    $existingImages[$property.Name] = $property.Value
+  }
+}
+$dailyData = $null
+if (Test-Path -LiteralPath $dailyDataPath) {
+  $dailyRaw = Get-Content -LiteralPath $dailyDataPath -Raw -Encoding UTF8
+  $dailyJson = ($dailyRaw -replace "^window\.WHOAU_DAILY_SALES = ", "") -replace ";\s*$", ""
+  $dailyData = $dailyJson | ConvertFrom-Json
+}
 $itemGroups = @(
   @{ id = "all"; codes = $null },
   @{ id = "outer"; codes = @("JD", "JE", "JJ", "JK", "JL", "JP", "JT", "JW", "VW") },
@@ -77,6 +93,21 @@ foreach ($style in @($data.styles)) {
   }
 }
 
+if ($dailyData) {
+  foreach ($group in $itemGroups) {
+    $dailyRows = @($dailyData.styles | Where-Object {
+      $itemCode = Get-ItemCode $_.styleCode
+      -not $group.codes -or ($group.codes -contains $itemCode)
+    } | Sort-Object @{ Expression = "dailyQty"; Descending = $true } | Select-Object -First 20)
+    foreach ($row in $dailyRows) {
+      $code = [string]$row.styleCode
+      if ($code -and -not $needed.Contains($code)) {
+        $needed[$code] = $true
+      }
+    }
+  }
+}
+
 $styles = @($needed.Keys)
 $map = [ordered]@{}
 
@@ -89,6 +120,15 @@ function Normalize-ImageUrl($url) {
 }
 
 foreach ($style in $styles) {
+  if ($existingImages.ContainsKey($style) -and $existingImages[$style].imageUrl) {
+    $map[$style] = [ordered]@{
+      imageUrl = [string]$existingImages[$style].imageUrl
+      productUrl = [string]$existingImages[$style].productUrl
+      source = [string]$existingImages[$style].source
+    }
+    Write-Host "SKIP $style"
+    continue
+  }
   $encoded = [uri]::EscapeDataString($style)
   $searchUrl = "https://whoau.com/product/search.html?banner_action=&keyword=$encoded"
   try {

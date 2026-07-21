@@ -179,7 +179,39 @@ coPurchaseStart.setDate(targetWeek.end.getDate() - 27);
 const coPurchaseLabel = labelFromDates(coPurchaseStart, targetWeek.end);
 
 const sql = `
-WITH plant_daily AS (
+WITH total_mart_dedup AS (
+  SELECT DISTINCT
+    t.calday,
+    t.plant,
+    t.material,
+    t.sale,
+    t.saleamt,
+    t.salejung,
+    t.salejungamt,
+    t.ipgo_qty,
+    t.ordqty,
+    t.ordamt,
+    t.hstoc_qty,
+    t.sstoc_tmp_qty
+  FROM fpw.total_mart t
+  WHERE t.calday BETWEEN $1 AND $2
+    AND LENGTH(t.calday) = 8
+    AND t.calday ~ '^[0-9]{8}$'
+    AND t.material LIKE 'WH%'
+    AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
+    AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+    AND COALESCE(t.plant, '') <> '1118'
+    AND (
+      COALESCE(t.sale, 0) <> 0
+      OR COALESCE(t.saleamt, 0) <> 0
+      OR COALESCE(t.salejung, 0) <> 0
+      OR COALESCE(t.salejungamt, 0) <> 0
+      OR COALESCE(t.ipgo_qty, 0) <> 0
+      OR COALESCE(t.ordqty, 0) <> 0
+      OR COALESCE(t.ordamt, 0) <> 0
+    )
+),
+plant_daily AS (
   SELECT
     LEFT(t.material, 10) AS material,
     t.calday,
@@ -192,14 +224,7 @@ WITH plant_daily AS (
     SUM(COALESCE(t.ordqty, 0)) AS order_qty,
     SUM(COALESCE(t.ordamt, 0)) AS order_amt,
     SUM(COALESCE(t.hstoc_qty, 0) + COALESCE(t.sstoc_tmp_qty, 0)) AS stock_delta
-  FROM fpw.total_mart t
-  WHERE t.calday BETWEEN $1 AND $2
-    AND LENGTH(t.calday) = 8
-    AND t.calday ~ '^[0-9]{8}$'
-    AND t.material LIKE 'WH%'
-    AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
-    AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
-    AND COALESCE(t.plant, '') <> '1118'
+  FROM total_mart_dedup t
   GROUP BY LEFT(t.material, 10), t.calday, t.plant
 ),
 tmaterial AS (
@@ -274,14 +299,18 @@ try {
     `, [materials]);
     styleNameRows = namesResult.rows;
     const inventoryResult = await client.query(`
-      WITH cumulative_filtered AS (
-        SELECT
-          LEFT(material, 10) AS material,
-          COALESCE(ipgo_qty, 0) AS inbound_qty,
-          COALESCE(sale, 0) AS sale_qty,
-          COALESCE(saleamt, 0) AS sale_amt,
-          COALESCE(salejung, 0) AS normal_qty,
-          COALESCE(salejungamt, 0) AS normal_amt
+      WITH total_mart_dedup AS (
+        SELECT DISTINCT
+          calday,
+          plant,
+          material,
+          ipgo_qty,
+          sale,
+          saleamt,
+          salejung,
+          salejungamt,
+          ordqty,
+          ordamt
         FROM fpw.total_mart
         WHERE calday BETWEEN $1 AND $2
           AND LENGTH(calday) = 8
@@ -290,6 +319,25 @@ try {
           AND LEFT(material, 10) = ANY($3)
           AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
           AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+          AND (
+            COALESCE(ipgo_qty, 0) <> 0
+            OR COALESCE(sale, 0) <> 0
+            OR COALESCE(saleamt, 0) <> 0
+            OR COALESCE(salejung, 0) <> 0
+            OR COALESCE(salejungamt, 0) <> 0
+            OR COALESCE(ordqty, 0) <> 0
+            OR COALESCE(ordamt, 0) <> 0
+          )
+      ),
+      cumulative_filtered AS (
+        SELECT
+          LEFT(material, 10) AS material,
+          COALESCE(ipgo_qty, 0) AS inbound_qty,
+          COALESCE(sale, 0) AS sale_qty,
+          COALESCE(saleamt, 0) AS sale_amt,
+          COALESCE(salejung, 0) AS normal_qty,
+          COALESCE(salejungamt, 0) AS normal_amt
+        FROM total_mart_dedup
       ),
       order_filtered AS (
         SELECT DISTINCT
@@ -299,13 +347,7 @@ try {
           plant,
           COALESCE(ordqty, 0) AS order_qty,
           COALESCE(ordamt, 0) AS order_amt
-        FROM fpw.total_mart
-        WHERE LENGTH(calday) = 8
-          AND calday ~ '^[0-9]{8}$'
-          AND material LIKE 'WH%'
-          AND LEFT(material, 10) = ANY($3)
-          AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
-          AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+        FROM total_mart_dedup
       ),
       cumulative AS (
         SELECT

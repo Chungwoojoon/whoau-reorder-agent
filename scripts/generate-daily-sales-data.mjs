@@ -113,7 +113,29 @@ const target = previousDay();
 const targetYmd = ymd(target);
 
 const sql = `
-WITH daily AS (
+WITH total_mart_dedup AS (
+  SELECT DISTINCT
+    t.calday,
+    t.plant,
+    t.material,
+    t.sale,
+    t.saleamt,
+    t.salejung,
+    t.salejungamt
+  FROM fpw.total_mart t
+  WHERE t.calday = $1
+    AND t.material LIKE 'WH%'
+    AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
+    AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+    AND COALESCE(t.plant, '') <> '1118'
+    AND (
+      COALESCE(t.sale, 0) <> 0
+      OR COALESCE(t.saleamt, 0) <> 0
+      OR COALESCE(t.salejung, 0) <> 0
+      OR COALESCE(t.salejungamt, 0) <> 0
+    )
+),
+daily AS (
   SELECT
     LEFT(t.material, 10) AS material,
     t.plant,
@@ -121,12 +143,7 @@ WITH daily AS (
     SUM(COALESCE(t.saleamt, 0)) AS sale_amt,
     SUM(COALESCE(t.salejung, 0)) AS normal_qty,
     SUM(COALESCE(t.salejungamt, 0)) AS normal_amt
-  FROM fpw.total_mart t
-  WHERE t.calday = $1
-    AND t.material LIKE 'WH%'
-    AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
-    AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
-    AND COALESCE(t.plant, '') <> '1118'
+  FROM total_mart_dedup t
   GROUP BY LEFT(t.material, 10), t.plant
 ),
 tmaterial AS (

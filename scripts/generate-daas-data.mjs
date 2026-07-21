@@ -347,7 +347,17 @@ try {
           plant,
           COALESCE(ordqty, 0) AS order_qty,
           COALESCE(ordamt, 0) AS order_amt
-        FROM total_mart_dedup
+        FROM fpw.total_mart
+        WHERE LENGTH(calday) = 8
+          AND calday ~ '^[0-9]{8}$'
+          AND material LIKE 'WH%'
+          AND LEFT(material, 10) = ANY($3)
+          AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+          AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+          AND (
+            COALESCE(ordqty, 0) <> 0
+            OR COALESCE(ordamt, 0) <> 0
+          )
       ),
       cumulative AS (
         SELECT

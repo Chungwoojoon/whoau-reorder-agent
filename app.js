@@ -185,6 +185,14 @@ function activeMetric() {
   return METRICS[state.metric] || METRICS.weeklyQty;
 }
 
+function emptyChannels() {
+  return {
+    offline: { qty: 0, amount: 0 },
+    online: { qty: 0, amount: 0 },
+    buyer: { qty: 0, amount: 0 },
+  };
+}
+
 function formatWeekDate(date) {
   return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
 }

@@ -231,10 +231,15 @@ function latestWeeklyRow(style) {
   const target = targetWeekLabel();
   const targetRow = weekly.find((week) => week.label === target);
   if (targetRow) return targetRow;
-
-  const latestLabel = sourceData.latestWeekLabel || sourceData.latestWeek;
-  const latestRow = latestLabel ? weekly.find((week) => week.label === latestLabel) : null;
-  return latestRow || weekly.at(-1) || {};
+  return {
+    label: target,
+    actualQty: 0,
+    normalQty: 0,
+    salesAmount: 0,
+    normalAmount: 0,
+    channels: emptyChannels(),
+    topStore: { name: "-", qty: 0, channel: "offline" },
+  };
 }
 
 function previousWeeklyRow(style) {

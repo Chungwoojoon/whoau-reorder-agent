@@ -642,15 +642,17 @@ function renderCategoryCards() {
     const total = metric.total(groupRows);
     if (!leader) {
       return `<article class="category-card muted">
-        <span>${escapeHtml(group.label)}</span>
+        <span class="category-name">${escapeHtml(group.label)}</span>
+        <em>1위 데이터 없음</em>
         <strong>-</strong>
-        <small>데이터 없음</small>
+        <small>${metric.totalLabel} 0${metric.unit}</small>
       </article>`;
     }
     return `<button class="category-card" type="button" data-category="${group.id}">
-      <span>${escapeHtml(group.label)}</span>
+      <span class="category-name">${escapeHtml(group.label)}</span>
+      <em>1위 ${escapeHtml(leader.styleCode)}</em>
       <strong>${metric.format(metric.value(leader))}${metric.unit}</strong>
-      <small>${escapeHtml(leader.styleCode)} · ${metric.totalLabel} ${metric.format(total)}${metric.unit}</small>
+      <small>${metric.totalLabel} ${metric.format(total)}${metric.unit}</small>
     </button>`;
   });
   document.getElementById("categoryCards").innerHTML = cards.join("");

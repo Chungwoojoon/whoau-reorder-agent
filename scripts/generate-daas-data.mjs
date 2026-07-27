@@ -174,12 +174,13 @@ loadEnv(envPath);
 const targetWeek = previousCompleteWeek();
 const yearStart = `${targetWeek.end.getFullYear()}0101`;
 const cumulativeStart = `${targetWeek.end.getFullYear() - 1}1101`;
+const cumulativeEnd = ymd(new Date());
 const coPurchaseStart = new Date(targetWeek.end);
 coPurchaseStart.setDate(targetWeek.end.getDate() - 27);
 const coPurchaseLabel = labelFromDates(coPurchaseStart, targetWeek.end);
 
 const sql = `
-WITH total_mart_dedup AS (
+WITH total_mart_sales_dedup AS (
   SELECT DISTINCT
     t.calday,
     t.plant,
@@ -187,12 +188,7 @@ WITH total_mart_dedup AS (
     t.sale,
     t.saleamt,
     t.salejung,
-    t.salejungamt,
-    t.ipgo_qty,
-    t.ordqty,
-    t.ordamt,
-    t.hstoc_qty,
-    t.sstoc_tmp_qty
+    t.salejungamt
   FROM fpw.total_mart t
   WHERE t.calday BETWEEN $1 AND $2
     AND LENGTH(t.calday) = 8
@@ -206,9 +202,6 @@ WITH total_mart_dedup AS (
       OR COALESCE(t.saleamt, 0) <> 0
       OR COALESCE(t.salejung, 0) <> 0
       OR COALESCE(t.salejungamt, 0) <> 0
-      OR COALESCE(t.ipgo_qty, 0) <> 0
-      OR COALESCE(t.ordqty, 0) <> 0
-      OR COALESCE(t.ordamt, 0) <> 0
     )
 ),
 plant_daily AS (
@@ -219,12 +212,8 @@ plant_daily AS (
     SUM(COALESCE(t.sale, 0)) AS sale_qty,
     SUM(COALESCE(t.saleamt, 0)) AS sale_amt,
     SUM(COALESCE(t.salejung, 0)) AS normal_qty,
-    SUM(COALESCE(t.salejungamt, 0)) AS normal_amt,
-    SUM(COALESCE(t.ipgo_qty, 0)) AS inbound_qty,
-    SUM(COALESCE(t.ordqty, 0)) AS order_qty,
-    SUM(COALESCE(t.ordamt, 0)) AS order_amt,
-    SUM(COALESCE(t.hstoc_qty, 0) + COALESCE(t.sstoc_tmp_qty, 0)) AS stock_delta
-  FROM total_mart_dedup t
+    SUM(COALESCE(t.salejungamt, 0)) AS normal_amt
+  FROM total_mart_sales_dedup t
   GROUP BY LEFT(t.material, 10), t.calday, t.plant
 ),
 tmaterial AS (
@@ -266,11 +255,7 @@ SELECT
   d.sale_qty,
   d.sale_amt,
   d.normal_qty,
-  d.normal_amt,
-  d.inbound_qty,
-  d.order_qty,
-  d.order_amt,
-  d.stock_delta
+  d.normal_amt
 FROM plant_daily d
 LEFT JOIN tmaterial tm ON d.material = tm.material
 LEFT JOIN pmaterial pm ON d.material = pm.material
@@ -299,18 +284,18 @@ try {
     `, [materials]);
     styleNameRows = namesResult.rows;
     const inventoryResult = await client.query(`
-      WITH total_mart_dedup AS (
+      WITH material_scope AS (
+        SELECT unnest($3::text[]) AS material
+      ),
+      cumulative_sales_dedup AS (
         SELECT DISTINCT
           calday,
           plant,
           material,
-          ipgo_qty,
           sale,
           saleamt,
           salejung,
-          salejungamt,
-          ordqty,
-          ordamt
+          salejungamt
         FROM fpw.total_mart
         WHERE calday BETWEEN $1 AND $2
           AND LENGTH(calday) = 8
@@ -320,24 +305,57 @@ try {
           AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
           AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
           AND (
-            COALESCE(ipgo_qty, 0) <> 0
-            OR COALESCE(sale, 0) <> 0
+            COALESCE(sale, 0) <> 0
             OR COALESCE(saleamt, 0) <> 0
             OR COALESCE(salejung, 0) <> 0
             OR COALESCE(salejungamt, 0) <> 0
-            OR COALESCE(ordqty, 0) <> 0
-            OR COALESCE(ordamt, 0) <> 0
           )
       ),
-      cumulative_filtered AS (
+      inbound_dedup AS (
+        SELECT DISTINCT
+          calday,
+          plant,
+          material,
+          ipgo_qty
+        FROM fpw.total_mart
+        WHERE calday BETWEEN $1 AND $2
+          AND LENGTH(calday) = 8
+          AND calday ~ '^[0-9]{8}$'
+          AND material LIKE 'WH%'
+          AND LEFT(material, 10) = ANY($3)
+          AND SUBSTRING(LEFT(material, 10) FROM 6 FOR 1) <> 'B'
+          AND SUBSTRING(LEFT(material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
+          AND COALESCE(ipgo_qty, 0) <> 0
+      ),
+      inbound AS (
         SELECT
           LEFT(material, 10) AS material,
-          COALESCE(ipgo_qty, 0) AS inbound_qty,
-          COALESCE(sale, 0) AS sale_qty,
-          COALESCE(saleamt, 0) AS sale_amt,
-          COALESCE(salejung, 0) AS normal_qty,
-          COALESCE(salejungamt, 0) AS normal_amt
-        FROM total_mart_dedup
+          COALESCE(SUM(COALESCE(ipgo_qty, 0)), 0) AS inbound_qty
+        FROM inbound_dedup
+        GROUP BY LEFT(material, 10)
+      ),
+      cumulative_sales AS (
+        SELECT
+          LEFT(material, 10) AS material,
+          COALESCE(SUM(COALESCE(sale, 0)), 0) AS total_qty,
+          COALESCE(SUM(COALESCE(saleamt, 0)), 0) AS total_sales_amount,
+          COALESCE(SUM(COALESCE(salejung, 0)), 0) AS total_normal_qty,
+          COALESCE(SUM(COALESCE(salejungamt, 0)), 0) AS total_normal_amount
+        FROM cumulative_sales_dedup
+        GROUP BY LEFT(material, 10)
+      ),
+      cumulative AS (
+        SELECT
+          m.material,
+          COALESCE(i.inbound_qty, 0) AS inbound_qty,
+          COALESCE(s.total_qty, 0) AS total_qty,
+          COALESCE(s.total_sales_amount, 0) AS total_sales_amount,
+          COALESCE(s.total_normal_qty, 0) AS total_normal_qty,
+          COALESCE(s.total_normal_amount, 0) AS total_normal_amount,
+          COALESCE(i.inbound_qty, 0) - COALESCE(s.total_qty, 0) AS stock_qty
+        FROM material_scope m
+        LEFT JOIN inbound i ON m.material = i.material
+        LEFT JOIN cumulative_sales s ON m.material = s.material
       ),
       order_filtered AS (
         SELECT DISTINCT
@@ -359,18 +377,6 @@ try {
             OR COALESCE(ordamt, 0) <> 0
           )
       ),
-      cumulative AS (
-        SELECT
-          material,
-          COALESCE(SUM(inbound_qty), 0) AS inbound_qty,
-          COALESCE(SUM(sale_qty), 0) AS total_qty,
-          COALESCE(SUM(sale_amt), 0) AS total_sales_amount,
-          COALESCE(SUM(normal_qty), 0) AS total_normal_qty,
-          COALESCE(SUM(normal_amt), 0) AS total_normal_amount,
-          COALESCE(SUM(inbound_qty) - SUM(sale_qty), 0) AS stock_qty
-        FROM cumulative_filtered
-        GROUP BY material
-      ),
       orders AS (
         SELECT
           material,
@@ -391,7 +397,7 @@ try {
         c.stock_qty
       FROM cumulative c
       LEFT JOIN orders o ON c.material = o.material
-    `, [cumulativeStart, targetWeek.endYmd, materials]);
+    `, [cumulativeStart, cumulativeEnd, materials]);
     inventoryRows = inventoryResult.rows;
     const coPurchaseResult = await client.query(`
       SELECT weborderno, stylecode AS material, SUM(COALESCE(qty, 0)) AS qty

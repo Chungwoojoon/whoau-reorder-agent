@@ -41,8 +41,12 @@ try {
 
 Push-Location $projectRoot
 try {
+  Write-Log "Review insight update started after weekly sales data."
+  npm.cmd run generate:review-insights
+  Write-Log "Review insight update finished."
+
   Write-SalesStatus "success"
-  git add data/app-data.js data/image-map.js
+  git add data/app-data.js data/image-map.js data/review-insights.js
   git add data/sales-update-status.json
   $hasChanges = -not (git diff --cached --quiet)
   if ($hasChanges) {

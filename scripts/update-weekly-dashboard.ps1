@@ -25,7 +25,8 @@ function Write-SalesStatus {
     updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     source = "local-windows-scheduler"
   }
-  $payload | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+  $json = $payload | ConvertTo-Json -Depth 3
+  [System.IO.File]::WriteAllText($statusPath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
 Push-Location $projectRoot
@@ -33,11 +34,17 @@ try {
   Write-Log "Weekly update started."
   git pull --rebase origin main
   npm.cmd run generate:daas
+  Write-Log "Weekly sales data generation finished."
 } finally {
   Pop-Location
 }
 
-& (Join-Path $scriptRoot "fetch-whoau-images.ps1")
+try {
+  & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
+  Write-Log "WHO.A.U image update finished."
+} catch {
+  Write-Log "WHO.A.U image update failed and was skipped: $($_.Exception.Message)"
+}
 
 Push-Location $projectRoot
 try {

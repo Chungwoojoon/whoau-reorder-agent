@@ -27,7 +27,13 @@ try {
   Write-Log "Daily sales update started."
   git pull --rebase origin main
   npm.cmd run generate:daily-sales
-  & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
+  Write-Log "Daily sales data generation finished."
+  try {
+    & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
+    Write-Log "WHO.A.U image update finished."
+  } catch {
+    Write-Log "WHO.A.U image update failed and was skipped: $($_.Exception.Message)"
+  }
 
   git add data/daily-sales-data.js data/image-map.js
   $hasChanges = -not (git diff --cached --quiet)

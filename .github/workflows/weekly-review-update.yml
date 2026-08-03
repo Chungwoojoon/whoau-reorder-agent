@@ -34,8 +34,8 @@ jobs:
             git fetch origin main
             marker="$(git show origin/main:data/sales-update-status.json 2>/dev/null || true)"
             if [ -n "$marker" ]; then
-              marker_date="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8"); try { console.log(JSON.parse(text).businessDate || ""); } catch { console.log(""); }' <<< "$marker")"
-              marker_status="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8"); try { console.log(JSON.parse(text).status || ""); } catch { console.log(""); }' <<< "$marker")"
+              marker_date="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8").replace(/^\uFEFF/,""); try { console.log(JSON.parse(text).businessDate || ""); } catch { console.log(""); }' <<< "$marker")"
+              marker_status="$(node -e 'const fs=require("fs"); const text=fs.readFileSync(0,"utf8").replace(/^\uFEFF/,""); try { console.log(JSON.parse(text).status || ""); } catch { console.log(""); }' <<< "$marker")"
               echo "Attempt ${attempt}: marker date=${marker_date}, status=${marker_status}"
               if [ "$marker_date" = "$target_date" ] && [ "$marker_status" = "success" ]; then
                 git reset --hard origin/main

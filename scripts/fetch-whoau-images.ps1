@@ -170,6 +170,19 @@ $payload = [ordered]@{
 }
 
 $content = "window.WHOAU_IMAGE_MAP = " + ($payload | ConvertTo-Json -Depth 6 -Compress) + ";"
-Set-Content -LiteralPath $outPath -Value $content -Encoding UTF8
+$lastError = $null
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+  try {
+    [System.IO.File]::WriteAllText($outPath, $content, [System.Text.UTF8Encoding]::new($false))
+    $lastError = $null
+    break
+  } catch {
+    $lastError = $_.Exception
+    Start-Sleep -Seconds 3
+  }
+}
+if ($lastError) {
+  throw "Could not write image map after 5 attempts: $($lastError.Message)"
+}
 Write-Host "Generated $outPath"
 Write-Host "mapped=$($map.Count) requested=$($styles.Count)"

@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -77,7 +77,7 @@ foreach ($group in $itemGroups) {
     }
   }
   foreach ($metric in $metrics) {
-    $top = @($rows | Sort-Object @{ Expression = $metric; Descending = $true }, @{ Expression = "weeklyQty"; Descending = $true } | Select-Object -First 10)
+    $top = @($rows | Sort-Object @{ Expression = $metric; Descending = $true }, @{ Expression = "weeklyQty"; Descending = $true } | Select-Object -First 20)
     foreach ($row in $top) {
       if ($row.styleCode -and -not $needed.Contains($row.styleCode)) { $needed[$row.styleCode] = $true }
     }

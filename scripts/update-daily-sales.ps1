@@ -16,6 +16,27 @@ function Write-Log {
   Write-Host $line
 }
 
+function Invoke-Checked {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments
+  )
+  & $FilePath @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$FilePath failed with exit code $LASTEXITCODE"
+  }
+}
+
+function Sync-GitIfClean {
+  Invoke-Checked "git" @("fetch", "origin", "main")
+  $dirty = -not (git diff --quiet) -or -not (git diff --cached --quiet) -or [bool](git ls-files --others --exclude-standard)
+  if ($dirty) {
+    Write-Log "Skipped git pull because local working tree has uncommitted changes."
+    return
+  }
+  Invoke-Checked "git" @("pull", "--rebase", "origin", "main")
+}
+
 $today = (Get-Date).DayOfWeek
 if ($today -eq "Saturday" -or $today -eq "Sunday") {
   Write-Log "Skipped daily sales update on weekend."
@@ -25,8 +46,8 @@ if ($today -eq "Saturday" -or $today -eq "Sunday") {
 Push-Location $projectRoot
 try {
   Write-Log "Daily sales update started."
-  git pull --rebase origin main
-  npm.cmd run generate:daily-sales
+  Sync-GitIfClean
+  Invoke-Checked "node" @("scripts\generate-daily-sales-data.mjs")
   Write-Log "Daily sales data generation finished."
   try {
     & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
@@ -35,11 +56,11 @@ try {
     Write-Log "WHO.A.U image update failed and was skipped: $($_.Exception.Message)"
   }
 
-  git add data/daily-sales-data.js data/image-map.js
+  Invoke-Checked "git" @("add", "data/daily-sales-data.js", "data/image-map.js")
   $hasChanges = -not (git diff --cached --quiet)
   if ($hasChanges) {
-    git commit -m "Update daily sales data"
-    git push origin main
+    Invoke-Checked "git" @("commit", "-m", "Update daily sales data")
+    Invoke-Checked "git" @("push", "origin", "main")
     Write-Log "Daily sales data changes committed and pushed."
   } else {
     Write-Log "No daily sales data changes to commit."
@@ -47,7 +68,7 @@ try {
 
   $vercel = Get-Command vercel.cmd -ErrorAction SilentlyContinue
   if ($vercel) {
-    vercel.cmd --prod --yes
+    Invoke-Checked "vercel.cmd" @("--prod", "--yes")
     Write-Log "Vercel production deployment completed."
   } else {
     Write-Log "vercel.cmd was not found; skipped deployment."

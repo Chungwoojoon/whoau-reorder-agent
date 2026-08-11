@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -6,9 +6,13 @@ $dataPath = Join-Path $root "data\app-data.js"
 $dailyDataPath = Join-Path $root "data\daily-sales-data.js"
 $outPath = Join-Path $root "data\image-map.js"
 
-$raw = Get-Content -LiteralPath $dataPath -Raw -Encoding UTF8
-$json = ($raw -replace "^window\.REORDER_DATA = ", "") -replace ";\s*$", ""
-$data = $json | ConvertFrom-Json
+try {
+  $data = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/sales-analysis" -TimeoutSec 180
+} catch {
+  $raw = Get-Content -LiteralPath $dataPath -Raw -Encoding UTF8
+  $json = ($raw -replace "^window\.REORDER_DATA = ", "") -replace ";\s*$", ""
+  $data = $json | ConvertFrom-Json
+}
 $existingImages = @{}
 if (Test-Path -LiteralPath $outPath) {
   $imageRaw = Get-Content -LiteralPath $outPath -Raw -Encoding UTF8
@@ -108,7 +112,7 @@ if ($dailyData) {
   }
 }
 
-$styles = @($needed.Keys)
+$styles = @($needed.Keys | Sort-Object -Unique)
 $map = [ordered]@{}
 
 function Normalize-ImageUrl($url) {

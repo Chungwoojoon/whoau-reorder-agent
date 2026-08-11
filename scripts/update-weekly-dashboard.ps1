@@ -17,6 +17,27 @@ function Write-Log {
   Write-Host $line
 }
 
+function Invoke-Checked {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments
+  )
+  & $FilePath @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$FilePath failed with exit code $LASTEXITCODE"
+  }
+}
+
+function Sync-GitIfClean {
+  Invoke-Checked "git" @("fetch", "origin", "main")
+  $dirty = -not (git diff --quiet) -or -not (git diff --cached --quiet) -or [bool](git ls-files --others --exclude-standard)
+  if ($dirty) {
+    Write-Log "Skipped git pull because local working tree has uncommitted changes."
+    return
+  }
+  Invoke-Checked "git" @("pull", "--rebase", "origin", "main")
+}
+
 function Write-SalesStatus {
   param([string]$Status)
   $payload = [ordered]@{
@@ -32,8 +53,8 @@ function Write-SalesStatus {
 Push-Location $projectRoot
 try {
   Write-Log "Weekly update started."
-  git pull --rebase origin main
-  npm.cmd run generate:daas
+  Sync-GitIfClean
+  Invoke-Checked "node" @("scripts\generate-daas-data.mjs")
   Write-Log "Weekly sales data generation finished."
 } finally {
   Pop-Location
@@ -49,16 +70,15 @@ try {
 Push-Location $projectRoot
 try {
   Write-Log "Review insight update started after weekly sales data."
-  npm.cmd run generate:review-insights
+  Invoke-Checked "node" @("scripts\fetch-review-insights.mjs")
   Write-Log "Review insight update finished."
 
   Write-SalesStatus "success"
-  git add data/app-data.js data/image-map.js data/review-insights.js
-  git add data/sales-update-status.json
+  Invoke-Checked "git" @("add", "data/app-data.js", "data/image-map.js", "data/review-insights.js", "data/sales-update-status.json")
   $hasChanges = -not (git diff --cached --quiet)
   if ($hasChanges) {
-    git commit -m "Update weekly sales dashboard data"
-    git push origin main
+    Invoke-Checked "git" @("commit", "-m", "Update weekly sales dashboard data")
+    Invoke-Checked "git" @("push", "origin", "main")
     Write-Log "Sales data changes committed and pushed."
   } else {
     Write-Log "No sales data changes to commit."
@@ -66,7 +86,7 @@ try {
 
   $vercel = Get-Command vercel.cmd -ErrorAction SilentlyContinue
   if ($vercel) {
-    vercel.cmd --prod --yes
+    Invoke-Checked "vercel.cmd" @("--prod", "--yes")
     Write-Log "Vercel production deployment completed."
   } else {
     Write-Log "vercel.cmd was not found; skipped deployment."

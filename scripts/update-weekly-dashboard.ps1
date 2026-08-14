@@ -82,8 +82,18 @@ function Publish-DataFiles {
       Pop-Location
     }
   } finally {
-    Invoke-Checked "git" @("worktree", "remove", "--force", $publishRoot)
-    Invoke-Checked "git" @("worktree", "prune")
+    try {
+      & git @("worktree", "remove", "--force", $publishRoot) 2>&1 | ForEach-Object { Write-Log $_ }
+      if ($LASTEXITCODE -ne 0) {
+        Write-Log "Warning: failed to remove publish worktree. This does not affect the completed update."
+      }
+      & git @("worktree", "prune") 2>&1 | ForEach-Object { Write-Log $_ }
+      if ($LASTEXITCODE -ne 0) {
+        Write-Log "Warning: failed to prune worktrees. This does not affect the completed update."
+      }
+    } catch {
+      Write-Log "Warning: publish worktree cleanup failed. This does not affect the completed update. $($_.Exception.Message)"
+    }
   }
 }
 

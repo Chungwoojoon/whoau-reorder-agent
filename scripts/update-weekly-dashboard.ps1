@@ -28,14 +28,63 @@ function Invoke-Checked {
   }
 }
 
-function Sync-GitIfClean {
-  Invoke-Checked "git" @("fetch", "origin", "main")
-  $dirty = -not (git diff --quiet) -or -not (git diff --cached --quiet) -or [bool](git ls-files --others --exclude-standard)
-  if ($dirty) {
-    Write-Log "Skipped git pull because local working tree has uncommitted changes."
-    return
+function Copy-IfExists {
+  param(
+    [string]$Source,
+    [string]$Destination
+  )
+  if (Test-Path -LiteralPath $Source) {
+    $parent = Split-Path -Parent $Destination
+    if (-not (Test-Path -LiteralPath $parent)) {
+      New-Item -ItemType Directory -Path $parent | Out-Null
+    }
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
   }
-  Invoke-Checked "git" @("pull", "--rebase", "origin", "main")
+}
+
+function Publish-DataFiles {
+  param(
+    [string[]]$RelativePaths,
+    [string]$CommitMessage
+  )
+
+  Invoke-Checked "git" @("fetch", "origin", "main")
+  $publishRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("whoau-weekly-publish-" + (Get-Date -Format "yyyyMMddHHmmss"))
+  Invoke-Checked "git" @("worktree", "add", "--detach", $publishRoot, "origin/main")
+
+  try {
+    foreach ($relativePath in $RelativePaths) {
+      Copy-IfExists (Join-Path $projectRoot $relativePath) (Join-Path $publishRoot $relativePath)
+    }
+    Copy-IfExists (Join-Path $projectRoot ".vercel\project.json") (Join-Path $publishRoot ".vercel\project.json")
+    Copy-IfExists (Join-Path $projectRoot ".vercel\README.txt") (Join-Path $publishRoot ".vercel\README.txt")
+
+    Push-Location $publishRoot
+    try {
+      Invoke-Checked "git" (@("add") + $RelativePaths)
+      $hasChanges = -not (git diff --cached --quiet)
+      if ($hasChanges) {
+        Invoke-Checked "git" @("commit", "-m", $CommitMessage)
+        Invoke-Checked "git" @("push", "origin", "HEAD:main")
+        Write-Log "Data changes committed and pushed from clean publish worktree."
+      } else {
+        Write-Log "No data changes to commit."
+      }
+
+      $vercel = Get-Command vercel.cmd -ErrorAction SilentlyContinue
+      if ($vercel) {
+        Invoke-Checked "vercel.cmd" @("--prod", "--yes")
+        Write-Log "Vercel production deployment completed."
+      } else {
+        Write-Log "vercel.cmd was not found; skipped deployment."
+      }
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    Invoke-Checked "git" @("worktree", "remove", "--force", $publishRoot)
+    Invoke-Checked "git" @("worktree", "prune")
+  }
 }
 
 function Write-SalesStatus {
@@ -53,7 +102,6 @@ function Write-SalesStatus {
 Push-Location $projectRoot
 try {
   Write-Log "Weekly update started."
-  Sync-GitIfClean
   Invoke-Checked "node" @("scripts\generate-daas-data.mjs")
   Write-Log "Weekly sales data generation finished."
 } finally {
@@ -74,23 +122,7 @@ try {
   Write-Log "Review insight update finished."
 
   Write-SalesStatus "success"
-  Invoke-Checked "git" @("add", "data/app-data.js", "data/image-map.js", "data/review-insights.js", "data/sales-update-status.json")
-  $hasChanges = -not (git diff --cached --quiet)
-  if ($hasChanges) {
-    Invoke-Checked "git" @("commit", "-m", "Update weekly sales dashboard data")
-    Invoke-Checked "git" @("push", "origin", "main")
-    Write-Log "Sales data changes committed and pushed."
-  } else {
-    Write-Log "No sales data changes to commit."
-  }
-
-  $vercel = Get-Command vercel.cmd -ErrorAction SilentlyContinue
-  if ($vercel) {
-    Invoke-Checked "vercel.cmd" @("--prod", "--yes")
-    Write-Log "Vercel production deployment completed."
-  } else {
-    Write-Log "vercel.cmd was not found; skipped deployment."
-  }
+  Publish-DataFiles @("data\app-data.js", "data\image-map.js", "data\review-insights.js", "data\sales-update-status.json") "Update weekly sales dashboard data"
 
   Write-Log "Weekly sales update finished."
 } finally {

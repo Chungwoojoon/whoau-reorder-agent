@@ -72,7 +72,8 @@ button {
 }
 
 .metric-switcher .review-nav-button,
-.metric-switcher .daily-nav-button {
+.metric-switcher .daily-nav-button,
+.metric-switcher .worst-nav-button {
   min-width: 124px;
   margin-left: 8px;
   border-color: rgba(31, 120, 209, 0.3);
@@ -81,7 +82,8 @@ button {
 }
 
 .metric-switcher .review-nav-button:hover,
-.metric-switcher .daily-nav-button:hover {
+.metric-switcher .daily-nav-button:hover,
+.metric-switcher .worst-nav-button:hover {
   border-color: var(--navy);
   background: var(--navy);
 }

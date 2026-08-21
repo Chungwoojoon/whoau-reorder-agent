@@ -145,6 +145,21 @@ const METRICS = {
     format: (value) => `${(Number(value || 0) * 100).toFixed(1)}`,
     subText: (row) => `${compactMoney(row.normalSalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}`,
   },
+  worstRate: {
+    label: "워스트판",
+    totalLabel: "평균 누적판매율",
+    unit: "%",
+    subtitle: "누적 판매액을 입고액으로 나눈 누적판매율이 낮은 순서로 시즌, 성별, 아이템별 워스트 순위를 확인합니다.",
+    sortAscending: true,
+    rankChange: false,
+    value: (row) => safeDivide(row.totalSalesAmount, inboundAmountFor(row)),
+    total: (rows) => safeDivide(
+      rows.reduce((sum, row) => sum + Number(row.totalSalesAmount || 0), 0),
+      rows.reduce((sum, row) => sum + inboundAmountFor(row), 0),
+    ),
+    format: (value) => `${(Number(value || 0) * 100).toFixed(1)}`,
+    subText: (row) => `${compactMoney(row.totalSalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}`,
+  },
 };
 
 function escapeHtml(value) {
@@ -349,7 +364,11 @@ function filteredRows() {
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
     })
-    .sort((a, b) => metric.value(b) - metric.value(a) || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode)));
+    .filter((row) => state.metric !== "worstRate" || inboundAmountFor(row) > 0)
+    .sort((a, b) => {
+      const diff = metric.sortAscending ? metric.value(a) - metric.value(b) : metric.value(b) - metric.value(a);
+      return diff || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode));
+    });
 }
 
 function previousRankMap(rows) {
@@ -535,13 +554,15 @@ function renderTabs() {
 function filteredBaseRows() {
   return baseRows().filter((row) => {
     if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
-    if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+    if (state.metric !== "worstRate" && state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
     if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
+    if (state.metric === "worstRate" && inboundAmountFor(row) <= 0) return false;
     return true;
   });
 }
 
 function renderFilterTabs() {
+  if (state.metric === "worstRate") state.selectedChannel = "all";
   const seasonRows = baseRows();
   document.getElementById("seasonTabs").innerHTML = SEASON_FILTERS.map((season) => {
     const count = season.id === "all" ? seasonRows.length : seasonRows.filter((row) => row.seasonCode === season.id).length;
@@ -553,6 +574,7 @@ function renderFilterTabs() {
   }).join("");
 
   const channelRows = baseRows().filter((row) => state.selectedSeason === "all" || row.seasonCode === state.selectedSeason);
+  document.getElementById("channelTabs").closest(".filter-row").hidden = state.metric === "worstRate";
   document.getElementById("channelTabs").innerHTML = CHANNEL_FILTERS.map((channel) => {
     const count = channel.id === "all" ? channelRows.length : channelRows.filter((row) => Number(row.weeklyChannels?.[channel.id]?.qty || 0) > 0 || Number(row.weeklyChannels?.[channel.id]?.amount || 0) > 0).length;
     const active = channel.id === state.selectedChannel ? "active" : "";
@@ -574,9 +596,10 @@ function renderFilterTabs() {
 }
 
 function renderMetricSwitcher() {
+  if (state.metric === "worstRate") state.selectedChannel = "all";
   if (state.selectedChannel !== "all" && !CHANNEL_METRICS.has(state.metric)) state.metric = "weeklyQty";
   document.querySelectorAll("#metricSwitcher button[data-metric]").forEach((button) => {
-    const allowed = state.selectedChannel === "all" || CHANNEL_METRICS.has(button.dataset.metric);
+    const allowed = button.dataset.metric === "worstRate" || state.selectedChannel === "all" || CHANNEL_METRICS.has(button.dataset.metric);
     button.hidden = !allowed;
     button.disabled = !allowed;
     button.classList.toggle("active", button.dataset.metric === state.metric);
@@ -593,8 +616,9 @@ function renderTopList() {
   const seasonLabel = state.selectedSeason === "all" ? "" : `${state.selectedSeason} `;
   const channelLabel = state.selectedChannel === "all" ? "" : `${activeChannel().label} `;
   const genderLabel = state.selectedGender === "all" ? "" : `${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""} `;
-  document.getElementById("leaderboardTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel}${selected.label} ${metric.label} Top ${TOP_LIMIT}`;
-  document.getElementById("resultMeta").textContent = `${numberFormat.format(rows.length)}개 스타일 중 ${metric.label} 상위 ${numberFormat.format(topRows.length)}개`;
+  const rankKind = metric.sortAscending ? "Worst" : "Top";
+  document.getElementById("leaderboardTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel}${selected.label} ${metric.label} ${rankKind} ${TOP_LIMIT}`;
+  document.getElementById("resultMeta").textContent = `${numberFormat.format(rows.length)}개 스타일 중 ${metric.label} ${metric.sortAscending ? "하위" : "상위"} ${numberFormat.format(topRows.length)}개`;
 
   const root = document.getElementById("topList");
   if (!topRows.length) {
@@ -602,10 +626,14 @@ function renderTopList() {
     return;
   }
 
-  const maxValue = Math.max(...topRows.map((row) => metric.value(row)), 0) || 1;
+  const rowValues = topRows.map((row) => metric.value(row));
+  const maxValue = Math.max(...rowValues, 0) || 1;
+  const minValue = Math.min(...rowValues);
+  const rangeValue = Math.max(maxValue - minValue, 0) || 1;
   root.innerHTML = topRows.map((row, index) => {
     const metricValue = metric.value(row);
-    const percent = Math.max(4, Math.round((metricValue / maxValue) * 100));
+    const barPercent = metric.sortAscending ? ((maxValue - metricValue) / rangeValue) * 100 : (metricValue / maxValue) * 100;
+    const percent = Math.max(4, Math.round(barPercent));
     return `<article class="rank-row" data-style="${escapeHtml(row.styleCode)}">
       <div class="rank">${index + 1}</div>
       ${imageFor(row)}
@@ -613,7 +641,7 @@ function renderTopList() {
         <div class="product-title">
           <div class="title-with-change">
             <strong>${escapeHtml(row.styleName || row.productName || row.styleCode)}</strong>
-            ${rankChangeBadge(row, index + 1, ranksBefore)}
+            ${metric.rankChange === false ? "" : rankChangeBadge(row, index + 1, ranksBefore)}
           </div>
           <span>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)}</span>
         </div>
@@ -634,23 +662,27 @@ function renderTopList() {
 function renderCategoryCards() {
   const rows = filteredBaseRows();
   const metric = activeMetric();
+  document.getElementById("categoryBoardTitle").textContent = metric.sortAscending ? "아이템별 워스트" : "아이템별 1위";
   const cards = ITEM_GROUPS.filter((group) => group.id !== "all").map((group) => {
     const groupRows = rows
       .filter((row) => group.codes.includes(row.itemCode))
-      .sort((a, b) => metric.value(b) - metric.value(a) || b.weeklyQty - a.weeklyQty);
+      .sort((a, b) => {
+        const diff = metric.sortAscending ? metric.value(a) - metric.value(b) : metric.value(b) - metric.value(a);
+        return diff || b.weeklyQty - a.weeklyQty;
+      });
     const leader = groupRows[0];
     const total = metric.total(groupRows);
     if (!leader) {
       return `<article class="category-card muted">
         <span class="category-name">${escapeHtml(group.label)}</span>
-        <em>1위 데이터 없음</em>
+        <em>${metric.sortAscending ? "워스트 데이터 없음" : "1위 데이터 없음"}</em>
         <strong>-</strong>
         <small>${metric.totalLabel} 0${metric.unit}</small>
       </article>`;
     }
     return `<button class="category-card" type="button" data-category="${group.id}">
       <span class="category-name">${escapeHtml(group.label)}</span>
-      <em>1위 ${escapeHtml(leader.styleCode)}</em>
+      <em>${metric.sortAscending ? "워스트" : "1위"} ${escapeHtml(leader.styleCode)}</em>
       <strong>${metric.format(metric.value(leader))}${metric.unit}</strong>
       <small>${metric.totalLabel} ${metric.format(total)}${metric.unit}</small>
     </button>`;
@@ -1549,7 +1581,7 @@ function renderSummary() {
   const seasonLabel = state.selectedSeason === "all" ? "26년도 제품" : `${state.selectedSeason} 시즌`;
   const channelLabel = state.selectedChannel === "all" ? "" : ` ${activeChannel().label}`;
   const genderLabel = state.selectedGender === "all" ? "" : ` ${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""}`;
-  document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel} ${metric.label} Top ${TOP_LIMIT}`;
+  document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel} ${metric.label} ${metric.sortAscending ? "Worst" : "Top"} ${TOP_LIMIT}`;
   document.getElementById("pageSubtitle").textContent = metric.subtitle;
   document.getElementById("latestWeek").textContent = target;
   const generatedText = sourceData.generatedAt ? `생성 ${sourceData.generatedAt}` : "데이터 생성 정보 없음";

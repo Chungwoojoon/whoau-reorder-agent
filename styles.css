@@ -758,6 +758,24 @@ h2 {
   gap: 8px;
 }
 
+.worst-sales-controls {
+  grid-template-columns: minmax(0, 1fr) 260px;
+}
+
+.worst-filter-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.filter-row.mini {
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
+}
+
+.filter-row.mini > span {
+  padding-top: 10px;
+}
+
 .daily-leaderboard {
   margin: 0;
 }

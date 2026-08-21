@@ -65,6 +65,12 @@ const dailySalesState = {
   query: "",
 };
 
+const worstSalesState = {
+  category: "all",
+  season: "all",
+  query: "",
+};
+
 const numberFormat = new Intl.NumberFormat("ko-KR");
 const moneyFormat = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byStyle = new Map((sourceData.styles || []).map((style) => [style.styleCode, style]));
@@ -533,6 +539,160 @@ function openDailySalesModal() {
 
 function closeDailySalesModal() {
   document.getElementById("dailySalesModal").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function worstRows() {
+  return baseRows()
+    .filter((row) => inboundAmountFor(row) > 0)
+    .map((row) => ({
+      ...row,
+      worstRate: safeDivide(row.totalSalesAmount, inboundAmountFor(row)),
+    }));
+}
+
+function filteredWorstRows() {
+  const selected = ITEM_GROUPS.find((group) => group.id === worstSalesState.category) || ITEM_GROUPS[0];
+  const query = worstSalesState.query.trim().toLowerCase();
+  return worstRows()
+    .filter((row) => !selected.codes || selected.codes.includes(row.itemCode))
+    .filter((row) => worstSalesState.season === "all" || row.seasonCode === worstSalesState.season)
+    .filter((row) => {
+      if (!query) return true;
+      return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.worstRate - b.worstRate || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode)));
+}
+
+function renderWorstSeasonTabs(rows) {
+  return SEASON_FILTERS.map((season) => {
+    const count = season.id === "all" ? rows.length : rows.filter((row) => row.seasonCode === season.id).length;
+    const active = season.id === worstSalesState.season ? "active" : "";
+    return `<button class="${active}" type="button" data-worst-season="${season.id}">
+      <span>${escapeHtml(season.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+}
+
+function renderWorstCategoryTabs(rows) {
+  const seasonRows = rows.filter((row) => worstSalesState.season === "all" || row.seasonCode === worstSalesState.season);
+  return ITEM_GROUPS.map((group) => {
+    const count = group.id === "all" ? seasonRows.length : seasonRows.filter((row) => group.codes.includes(row.itemCode)).length;
+    const active = group.id === worstSalesState.category ? "active" : "";
+    return `<button class="${active}" type="button" data-worst-category="${group.id}">
+      <span>${escapeHtml(group.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+}
+
+function renderWorstSalesModal() {
+  const allRows = worstRows();
+  const rows = filteredWorstRows();
+  const topRows = rows.slice(0, TOP_LIMIT);
+  const selected = ITEM_GROUPS.find((group) => group.id === worstSalesState.category) || ITEM_GROUPS[0];
+  const seasonLabel = worstSalesState.season === "all" ? "전체" : worstSalesState.season;
+  const scopeParts = [];
+  if (worstSalesState.season !== "all") scopeParts.push(worstSalesState.season);
+  if (selected.id !== "all") scopeParts.push(selected.label);
+  const scopeLabel = scopeParts.length ? scopeParts.join(" ") : "전체";
+  const totalRate = safeDivide(
+    rows.reduce((sum, row) => sum + Number(row.totalSalesAmount || 0), 0),
+    rows.reduce((sum, row) => sum + inboundAmountFor(row), 0),
+  );
+  const maxRate = Math.max(...topRows.map((row) => row.worstRate), 0) || 1;
+  const minRate = Math.min(...topRows.map((row) => row.worstRate), 0);
+  const rateRange = Math.max(maxRate - minRate, 0) || 1;
+  document.getElementById("worstSalesTitle").textContent = `${scopeLabel} 워스트판 Worst ${TOP_LIMIT}`;
+  document.getElementById("worstSalesBody").innerHTML = `
+    <section class="daily-sales-shell">
+      <div class="daily-sales-summary">
+        <article>
+          <span>업데이트 기준</span>
+          <strong>${escapeHtml(sourceData.targetWeekLabel || "-")}</strong>
+          <small>누적판매율 낮은 순</small>
+        </article>
+        <article>
+          <span>스타일</span>
+          <strong>${numberFormat.format(allRows.length)}</strong>
+          <small>입고액 있는 26년도 스타일</small>
+        </article>
+        <article>
+          <span>${escapeHtml(selected.label)} 평균 누적판매율</span>
+          <strong>${METRICS.worstRate.format(totalRate)}%</strong>
+          <small>${numberFormat.format(rows.length)}개 스타일</small>
+        </article>
+        <article>
+          <span>생성</span>
+          <strong>${escapeHtml(sourceData.generatedAt || "-")}</strong>
+          <small>주간 데이터 기준</small>
+        </article>
+      </div>
+      <div class="daily-sales-controls worst-sales-controls">
+        <div class="worst-filter-stack">
+          <div class="filter-row mini">
+            <span>시즌</span>
+            <div class="tabs daily-tabs">${renderWorstSeasonTabs(allRows)}</div>
+          </div>
+          <div class="filter-row mini">
+            <span>아이템</span>
+            <div class="tabs daily-tabs">${renderWorstCategoryTabs(allRows)}</div>
+          </div>
+        </div>
+        <label class="search-box">
+          <span>검색</span>
+          <input id="worstSalesSearch" type="search" placeholder="스타일코드 또는 상품명" value="${escapeHtml(worstSalesState.query)}" />
+        </label>
+      </div>
+      <section class="leaderboard daily-leaderboard">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">WORST 20</p>
+            <h3>${escapeHtml(scopeLabel)} 워스트판 Worst ${TOP_LIMIT}</h3>
+          </div>
+          <p>${numberFormat.format(rows.length)}개 스타일 중 누적판매율 하위 ${numberFormat.format(topRows.length)}개</p>
+        </div>
+        <div class="rank-list">
+          ${topRows.length ? topRows.map((row, index) => {
+            const rate = row.worstRate;
+            const bar = Math.max(4, Math.round(((maxRate - rate) / rateRange) * 100));
+            return `<article class="rank-row daily-rank-row" data-worst-style="${escapeHtml(row.styleCode)}">
+              <div class="rank">${index + 1}</div>
+              ${dailyImageFor(row)}
+              <div class="product">
+                <div class="product-title">
+                  <strong>${escapeHtml(row.styleName || row.productName || row.styleCode)}</strong>
+                  <span>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)} · ${escapeHtml(row.seasonCode)}</span>
+                </div>
+                <div class="bar" aria-hidden="true"><span style="width:${bar}%"></span></div>
+                <div class="meta">
+                  <span>${escapeHtml(row.styleCode)}</span>
+                  <span>누적판매 ${numberFormat.format(Number(row.totalQty || 0))}pcs</span>
+                  <span>입고 ${numberFormat.format(Number(row.inboundQty || 0))}pcs</span>
+                  <span>재고 ${numberFormat.format(Number(row.stock || 0))}pcs</span>
+                </div>
+              </div>
+              <div class="qty">
+                <strong>${METRICS.worstRate.format(rate)}</strong>
+                <span>%</span>
+                <small>${compactMoney(row.totalSalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}</small>
+              </div>
+            </article>`;
+          }).join("") : `<div class="empty">조건에 맞는 워스트판 데이터가 없습니다.</div>`}
+        </div>
+      </section>
+    </section>`;
+}
+
+function openWorstSalesModal() {
+  renderWorstSalesModal();
+  document.getElementById("worstSalesModal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeWorstSalesModal() {
+  document.getElementById("worstSalesModal").hidden = true;
   document.body.classList.remove("modal-open");
 }
 
@@ -1665,6 +1825,8 @@ document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurc
 document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
 document.getElementById("dailySalesButton").addEventListener("click", openDailySalesModal);
 document.getElementById("dailySalesClose").addEventListener("click", closeDailySalesModal);
+document.getElementById("worstSalesButton").addEventListener("click", openWorstSalesModal);
+document.getElementById("worstSalesClose").addEventListener("click", closeWorstSalesModal);
 document.getElementById("modalBody").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-review-insight-style]");
   if (!button) return;
@@ -1717,6 +1879,35 @@ document.getElementById("dailySalesModal").addEventListener("input", (event) => 
   input?.focus();
   input?.setSelectionRange(input.value.length, input.value.length);
 });
+document.getElementById("worstSalesModal").addEventListener("click", (event) => {
+  const seasonButton = event.target.closest("button[data-worst-season]");
+  if (seasonButton) {
+    worstSalesState.season = seasonButton.dataset.worstSeason;
+    renderWorstSalesModal();
+    return;
+  }
+  const categoryButton = event.target.closest("button[data-worst-category]");
+  if (categoryButton) {
+    worstSalesState.category = categoryButton.dataset.worstCategory;
+    renderWorstSalesModal();
+    return;
+  }
+  const row = event.target.closest(".daily-rank-row[data-worst-style]");
+  if (row && byStyle.has(row.dataset.worstStyle)) {
+    closeWorstSalesModal();
+    openDetailModal(row.dataset.worstStyle);
+    return;
+  }
+  if (event.target.id === "worstSalesModal") closeWorstSalesModal();
+});
+document.getElementById("worstSalesModal").addEventListener("input", (event) => {
+  if (event.target.id !== "worstSalesSearch") return;
+  worstSalesState.query = event.target.value;
+  renderWorstSalesModal();
+  const input = document.getElementById("worstSalesSearch");
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+});
 document.getElementById("reviewInsightModal").addEventListener("input", (event) => {
   if (event.target.id !== "reviewSearchInput") return;
   reviewDashboardState.query = event.target.value;
@@ -1733,6 +1924,7 @@ document.getElementById("reviewInsightModal").addEventListener("change", (event)
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!document.getElementById("reviewInsightModal").hidden) closeReviewInsightModal();
+  else if (!document.getElementById("worstSalesModal").hidden) closeWorstSalesModal();
   else if (!document.getElementById("dailySalesModal").hidden) closeDailySalesModal();
   else if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
   else if (!document.getElementById("detailModal").hidden) closeDetailModal();

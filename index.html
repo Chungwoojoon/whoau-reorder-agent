@@ -17,7 +17,7 @@
         <button type="button" data-metric="normalRate">정판율</button>
         <button class="review-nav-button" id="globalReviewInsightButton" type="button">리뷰 인사이트</button>
         <button class="daily-nav-button" id="dailySalesButton" type="button">일판량</button>
-        <button class="worst-nav-button" type="button" data-metric="worstRate">워스트판</button>
+        <button class="worst-nav-button" id="worstSalesButton" type="button">워스트판</button>
       </nav>
 
       <header class="topbar">
@@ -151,6 +151,19 @@
           <button class="modal-close" id="dailySalesClose" type="button" aria-label="닫기">×</button>
         </header>
         <div class="daily-sales-body" id="dailySalesBody"></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop nested" id="worstSalesModal" hidden>
+      <section class="daily-sales-modal" role="dialog" aria-modal="true" aria-labelledby="worstSalesTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">WORST SELL-THROUGH</p>
+            <h2 id="worstSalesTitle">워스트판 Worst 20</h2>
+          </div>
+          <button class="modal-close" id="worstSalesClose" type="button" aria-label="닫기">×</button>
+        </header>
+        <div class="daily-sales-body" id="worstSalesBody"></div>
       </section>
     </div>
 

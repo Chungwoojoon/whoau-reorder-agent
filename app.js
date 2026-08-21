@@ -34,6 +34,7 @@ const CHANNEL_FILTERS = [
 ];
 
 const CHANNEL_METRICS = new Set(["weeklyQty", "weeklyAmount"]);
+const CHANNELLESS_METRICS = new Set(["weeklyRate", "normalRate", "worstRate"]);
 const GENDER_FILTERS = [
   { id: "all", label: "전체" },
   { id: "unisex", label: "유니" },
@@ -200,6 +201,10 @@ function activeMetric() {
   return METRICS[state.metric] || METRICS.weeklyQty;
 }
 
+function isChannellessMetric(metricKey = state.metric) {
+  return CHANNELLESS_METRICS.has(metricKey);
+}
+
 function emptyChannels() {
   return {
     offline: { qty: 0, amount: 0 },
@@ -359,7 +364,7 @@ function filteredRows() {
     .filter((row) => {
       if (selected.codes && !selected.codes.includes(row.itemCode)) return false;
       if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
-      if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+      if (!isChannellessMetric() && state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
       if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
@@ -554,7 +559,7 @@ function renderTabs() {
 function filteredBaseRows() {
   return baseRows().filter((row) => {
     if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
-    if (state.metric !== "worstRate" && state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
+    if (!isChannellessMetric() && state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
     if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
     if (state.metric === "worstRate" && inboundAmountFor(row) <= 0) return false;
     return true;
@@ -562,7 +567,7 @@ function filteredBaseRows() {
 }
 
 function renderFilterTabs() {
-  if (state.metric === "worstRate") state.selectedChannel = "all";
+  if (isChannellessMetric()) state.selectedChannel = "all";
   const seasonRows = baseRows();
   document.getElementById("seasonTabs").innerHTML = SEASON_FILTERS.map((season) => {
     const count = season.id === "all" ? seasonRows.length : seasonRows.filter((row) => row.seasonCode === season.id).length;
@@ -574,7 +579,7 @@ function renderFilterTabs() {
   }).join("");
 
   const channelRows = baseRows().filter((row) => state.selectedSeason === "all" || row.seasonCode === state.selectedSeason);
-  document.getElementById("channelTabs").closest(".filter-row").hidden = state.metric === "worstRate";
+  document.getElementById("channelTabs").closest(".filter-row").hidden = isChannellessMetric();
   document.getElementById("channelTabs").innerHTML = CHANNEL_FILTERS.map((channel) => {
     const count = channel.id === "all" ? channelRows.length : channelRows.filter((row) => Number(row.weeklyChannels?.[channel.id]?.qty || 0) > 0 || Number(row.weeklyChannels?.[channel.id]?.amount || 0) > 0).length;
     const active = channel.id === state.selectedChannel ? "active" : "";
@@ -584,7 +589,7 @@ function renderFilterTabs() {
     </button>`;
   }).join("");
 
-  const genderRows = channelRows.filter((row) => state.selectedChannel === "all" || Number(row.weeklyChannels?.[state.selectedChannel]?.qty || 0) > 0 || Number(row.weeklyChannels?.[state.selectedChannel]?.amount || 0) > 0);
+  const genderRows = channelRows.filter((row) => isChannellessMetric() || state.selectedChannel === "all" || Number(row.weeklyChannels?.[state.selectedChannel]?.qty || 0) > 0 || Number(row.weeklyChannels?.[state.selectedChannel]?.amount || 0) > 0);
   document.getElementById("genderTabs").innerHTML = GENDER_FILTERS.map((gender) => {
     const count = gender.id === "all" ? genderRows.length : genderRows.filter((row) => row.genderCode === gender.id).length;
     const active = gender.id === state.selectedGender ? "active" : "";
@@ -596,10 +601,10 @@ function renderFilterTabs() {
 }
 
 function renderMetricSwitcher() {
-  if (state.metric === "worstRate") state.selectedChannel = "all";
+  if (isChannellessMetric()) state.selectedChannel = "all";
   if (state.selectedChannel !== "all" && !CHANNEL_METRICS.has(state.metric)) state.metric = "weeklyQty";
   document.querySelectorAll("#metricSwitcher button[data-metric]").forEach((button) => {
-    const allowed = button.dataset.metric === "worstRate" || state.selectedChannel === "all" || CHANNEL_METRICS.has(button.dataset.metric);
+    const allowed = CHANNELLESS_METRICS.has(button.dataset.metric) || state.selectedChannel === "all" || CHANNEL_METRICS.has(button.dataset.metric);
     button.hidden = !allowed;
     button.disabled = !allowed;
     button.classList.toggle("active", button.dataset.metric === state.metric);

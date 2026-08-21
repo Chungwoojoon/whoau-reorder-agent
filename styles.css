@@ -776,6 +776,37 @@ h2 {
   padding-top: 10px;
 }
 
+.worst-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.worst-mode-switcher {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.worst-mode-switcher button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 900;
+}
+
+.worst-mode-switcher button.active {
+  color: #fff;
+  background: var(--navy);
+}
+
 .daily-leaderboard {
   margin: 0;
 }

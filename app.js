@@ -68,6 +68,7 @@ const dailySalesState = {
 const worstSalesState = {
   category: "all",
   season: "all",
+  mode: "sales",
   query: "",
 };
 
@@ -542,18 +543,57 @@ function closeDailySalesModal() {
   document.body.classList.remove("modal-open");
 }
 
+function activeWorstMode() {
+  if (worstSalesState.mode === "normal") {
+    return {
+      id: "normal",
+      label: "누적 정판율",
+      title: "누적 정판율 워스트",
+      amountKey: "totalNormalAmount",
+      qtyKey: "totalNormalQty",
+      qtyLabel: "누적정판",
+      totalLabel: "전체 평균 누적정판율",
+      empty: "조건에 맞는 누적 정판율 워스트 데이터가 없습니다.",
+    };
+  }
+  return {
+    id: "sales",
+    label: "누적 판매율",
+    title: "누적 판매율 워스트",
+    amountKey: "totalSalesAmount",
+    qtyKey: "totalQty",
+    qtyLabel: "누적판매",
+    totalLabel: "전체 평균 누적판매율",
+    empty: "조건에 맞는 누적 판매율 워스트 데이터가 없습니다.",
+  };
+}
+
+function worstValue(row, mode = activeWorstMode()) {
+  return safeDivide(row[mode.amountKey], inboundAmountFor(row));
+}
+
+function renderWorstModeSwitcher() {
+  document.querySelectorAll("#worstModeSwitcher button[data-worst-mode]").forEach((button) => {
+    const active = button.dataset.worstMode === worstSalesState.mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
 function worstRows() {
   return baseRows()
     .filter((row) => inboundAmountFor(row) > 0)
     .map((row) => ({
       ...row,
-      worstRate: safeDivide(row.totalSalesAmount, inboundAmountFor(row)),
+      worstSalesRate: safeDivide(row.totalSalesAmount, inboundAmountFor(row)),
+      worstNormalRate: safeDivide(row.totalNormalAmount, inboundAmountFor(row)),
     }));
 }
 
 function filteredWorstRows() {
   const selected = ITEM_GROUPS.find((group) => group.id === worstSalesState.category) || ITEM_GROUPS[0];
   const query = worstSalesState.query.trim().toLowerCase();
+  const mode = activeWorstMode();
   return worstRows()
     .filter((row) => !selected.codes || selected.codes.includes(row.itemCode))
     .filter((row) => worstSalesState.season === "all" || row.seasonCode === worstSalesState.season)
@@ -561,7 +601,7 @@ function filteredWorstRows() {
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
     })
-    .sort((a, b) => a.worstRate - b.worstRate || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode)));
+    .sort((a, b) => worstValue(a, mode) - worstValue(b, mode) || b.weeklyQty - a.weeklyQty || String(a.styleCode).localeCompare(String(b.styleCode)));
 }
 
 function renderWorstSeasonTabs(rows) {
@@ -588,6 +628,7 @@ function renderWorstCategoryTabs(rows) {
 }
 
 function renderWorstSalesModal() {
+  const mode = activeWorstMode();
   const allRows = worstRows();
   const rows = filteredWorstRows();
   const topRows = rows.slice(0, TOP_LIMIT);
@@ -598,20 +639,21 @@ function renderWorstSalesModal() {
   if (selected.id !== "all") scopeParts.push(selected.label);
   const scopeLabel = scopeParts.length ? scopeParts.join(" ") : "전체";
   const totalRate = safeDivide(
-    rows.reduce((sum, row) => sum + Number(row.totalSalesAmount || 0), 0),
+    rows.reduce((sum, row) => sum + Number(row[mode.amountKey] || 0), 0),
     rows.reduce((sum, row) => sum + inboundAmountFor(row), 0),
   );
-  const maxRate = Math.max(...topRows.map((row) => row.worstRate), 0) || 1;
-  const minRate = Math.min(...topRows.map((row) => row.worstRate), 0);
+  const maxRate = Math.max(...topRows.map((row) => worstValue(row, mode)), 0) || 1;
+  const minRate = Math.min(...topRows.map((row) => worstValue(row, mode)), 0);
   const rateRange = Math.max(maxRate - minRate, 0) || 1;
-  document.getElementById("worstSalesTitle").textContent = `${scopeLabel} 워스트판 Worst ${TOP_LIMIT}`;
+  renderWorstModeSwitcher();
+  document.getElementById("worstSalesTitle").textContent = `${scopeLabel} ${mode.title} Worst ${TOP_LIMIT}`;
   document.getElementById("worstSalesBody").innerHTML = `
     <section class="daily-sales-shell">
       <div class="daily-sales-summary">
         <article>
           <span>업데이트 기준</span>
           <strong>${escapeHtml(sourceData.targetWeekLabel || "-")}</strong>
-          <small>누적판매율 낮은 순</small>
+          <small>${escapeHtml(mode.label)} 낮은 순</small>
         </article>
         <article>
           <span>스타일</span>
@@ -619,7 +661,7 @@ function renderWorstSalesModal() {
           <small>입고액 있는 26년도 스타일</small>
         </article>
         <article>
-          <span>${escapeHtml(selected.label)} 평균 누적판매율</span>
+          <span>${escapeHtml(selected.label)} ${escapeHtml(mode.totalLabel)}</span>
           <strong>${METRICS.worstRate.format(totalRate)}%</strong>
           <small>${numberFormat.format(rows.length)}개 스타일</small>
         </article>
@@ -649,13 +691,13 @@ function renderWorstSalesModal() {
         <div class="section-head">
           <div>
             <p class="eyebrow">WORST 20</p>
-            <h3>${escapeHtml(scopeLabel)} 워스트판 Worst ${TOP_LIMIT}</h3>
+            <h3>${escapeHtml(scopeLabel)} ${escapeHtml(mode.title)} Worst ${TOP_LIMIT}</h3>
           </div>
-          <p>${numberFormat.format(rows.length)}개 스타일 중 누적판매율 하위 ${numberFormat.format(topRows.length)}개</p>
+          <p>${numberFormat.format(rows.length)}개 스타일 중 ${escapeHtml(mode.label)} 하위 ${numberFormat.format(topRows.length)}개</p>
         </div>
         <div class="rank-list">
           ${topRows.length ? topRows.map((row, index) => {
-            const rate = row.worstRate;
+            const rate = worstValue(row, mode);
             const bar = Math.max(4, Math.round(((maxRate - rate) / rateRange) * 100));
             return `<article class="rank-row daily-rank-row" data-worst-style="${escapeHtml(row.styleCode)}">
               <div class="rank">${index + 1}</div>
@@ -668,7 +710,7 @@ function renderWorstSalesModal() {
                 <div class="bar" aria-hidden="true"><span style="width:${bar}%"></span></div>
                 <div class="meta">
                   <span>${escapeHtml(row.styleCode)}</span>
-                  <span>누적판매 ${numberFormat.format(Number(row.totalQty || 0))}pcs</span>
+                  <span>${escapeHtml(mode.qtyLabel)} ${numberFormat.format(Number(row[mode.qtyKey] || 0))}pcs</span>
                   <span>입고 ${numberFormat.format(Number(row.inboundQty || 0))}pcs</span>
                   <span>재고 ${numberFormat.format(Number(row.stock || 0))}pcs</span>
                 </div>
@@ -676,10 +718,10 @@ function renderWorstSalesModal() {
               <div class="qty">
                 <strong>${METRICS.worstRate.format(rate)}</strong>
                 <span>%</span>
-                <small>${compactMoney(row.totalSalesAmount)} / 입고액 ${compactMoney(row.inboundAmount)}</small>
+                <small>${compactMoney(row[mode.amountKey])} / 입고액 ${compactMoney(row.inboundAmount)}</small>
               </div>
             </article>`;
-          }).join("") : `<div class="empty">조건에 맞는 워스트판 데이터가 없습니다.</div>`}
+          }).join("") : `<div class="empty">${escapeHtml(mode.empty)}</div>`}
         </div>
       </section>
     </section>`;
@@ -1880,6 +1922,12 @@ document.getElementById("dailySalesModal").addEventListener("input", (event) => 
   input?.setSelectionRange(input.value.length, input.value.length);
 });
 document.getElementById("worstSalesModal").addEventListener("click", (event) => {
+  const modeButton = event.target.closest("button[data-worst-mode]");
+  if (modeButton) {
+    worstSalesState.mode = modeButton.dataset.worstMode;
+    renderWorstSalesModal();
+    return;
+  }
   const seasonButton = event.target.closest("button[data-worst-season]");
   if (seasonButton) {
     worstSalesState.season = seasonButton.dataset.worstSeason;

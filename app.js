@@ -20,6 +20,8 @@ const ITEM_GROUPS = [
 
 const SEASON_FILTERS = [
   { id: "all", label: "전체" },
+  { id: "SS", label: "SS" },
+  { id: "FW", label: "FW" },
   { id: "G1", label: "G1" },
   { id: "G2", label: "G2" },
   { id: "G3", label: "G3" },
@@ -49,6 +51,7 @@ const state = {
   metric: "weeklyQty",
   query: "",
   detailStyleCode: "",
+  detailReturnContext: "",
 };
 
 const reviewDashboardState = {
@@ -244,6 +247,21 @@ function seasonCode(styleCode) {
   return String(styleCode || "").slice(4, 6).toUpperCase();
 }
 
+function seasonMatches(styleSeason, selectedSeason) {
+  const season = String(styleSeason || "").toUpperCase();
+  const selected = String(selectedSeason || "all").toUpperCase();
+  if (selected === "ALL") return true;
+  if (selected === "SS") return season === "G1" || season === "G2";
+  if (selected === "FW") return season === "G3" || season === "G4";
+  return season === selected;
+}
+
+function seasonFilterLabel(selectedSeason) {
+  const selected = String(selectedSeason || "all").toUpperCase();
+  if (selected === "ALL") return "전체";
+  return selected;
+}
+
 function genderCode(styleCode) {
   const suffix = String(styleCode || "").slice(-1).toUpperCase();
   if (suffix === "U" || suffix === "M") return "unisex";
@@ -365,7 +383,7 @@ function filteredRows() {
   return baseRows()
     .filter((row) => {
       if (selected.codes && !selected.codes.includes(row.itemCode)) return false;
-      if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
+      if (!seasonMatches(row.seasonCode, state.selectedSeason)) return false;
       if (state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
       if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
       if (!query) return true;
@@ -596,7 +614,7 @@ function filteredWorstRows() {
   const mode = activeWorstMode();
   return worstRows()
     .filter((row) => !selected.codes || selected.codes.includes(row.itemCode))
-    .filter((row) => worstSalesState.season === "all" || row.seasonCode === worstSalesState.season)
+    .filter((row) => seasonMatches(row.seasonCode, worstSalesState.season))
     .filter((row) => {
       if (!query) return true;
       return `${row.styleCode} ${row.styleName} ${row.productName}`.toLowerCase().includes(query);
@@ -606,7 +624,7 @@ function filteredWorstRows() {
 
 function renderWorstSeasonTabs(rows) {
   return SEASON_FILTERS.map((season) => {
-    const count = season.id === "all" ? rows.length : rows.filter((row) => row.seasonCode === season.id).length;
+    const count = rows.filter((row) => seasonMatches(row.seasonCode, season.id)).length;
     const active = season.id === worstSalesState.season ? "active" : "";
     return `<button class="${active}" type="button" data-worst-season="${season.id}">
       <span>${escapeHtml(season.label)}</span>
@@ -616,7 +634,7 @@ function renderWorstSeasonTabs(rows) {
 }
 
 function renderWorstCategoryTabs(rows) {
-  const seasonRows = rows.filter((row) => worstSalesState.season === "all" || row.seasonCode === worstSalesState.season);
+  const seasonRows = rows.filter((row) => seasonMatches(row.seasonCode, worstSalesState.season));
   return ITEM_GROUPS.map((group) => {
     const count = group.id === "all" ? seasonRows.length : seasonRows.filter((row) => group.codes.includes(row.itemCode)).length;
     const active = group.id === worstSalesState.category ? "active" : "";
@@ -633,9 +651,9 @@ function renderWorstSalesModal() {
   const rows = filteredWorstRows();
   const topRows = rows.slice(0, TOP_LIMIT);
   const selected = ITEM_GROUPS.find((group) => group.id === worstSalesState.category) || ITEM_GROUPS[0];
-  const seasonLabel = worstSalesState.season === "all" ? "전체" : worstSalesState.season;
+  const seasonLabel = seasonFilterLabel(worstSalesState.season);
   const scopeParts = [];
-  if (worstSalesState.season !== "all") scopeParts.push(worstSalesState.season);
+  if (worstSalesState.season !== "all") scopeParts.push(seasonFilterLabel(worstSalesState.season));
   if (selected.id !== "all") scopeParts.push(selected.label);
   const scopeLabel = scopeParts.length ? scopeParts.join(" ") : "전체";
   const totalRate = safeDivide(
@@ -755,7 +773,7 @@ function renderTabs() {
 
 function filteredBaseRows() {
   return baseRows().filter((row) => {
-    if (state.selectedSeason !== "all" && row.seasonCode !== state.selectedSeason) return false;
+    if (!seasonMatches(row.seasonCode, state.selectedSeason)) return false;
     if (state.metric !== "worstRate" && state.selectedChannel !== "all" && channelValue(row, "qty") <= 0 && channelValue(row, "amount") <= 0) return false;
     if (state.selectedGender !== "all" && row.genderCode !== state.selectedGender) return false;
     if (state.metric === "worstRate" && inboundAmountFor(row) <= 0) return false;
@@ -767,7 +785,7 @@ function renderFilterTabs() {
   if (state.metric === "worstRate") state.selectedChannel = "all";
   const seasonRows = baseRows();
   document.getElementById("seasonTabs").innerHTML = SEASON_FILTERS.map((season) => {
-    const count = season.id === "all" ? seasonRows.length : seasonRows.filter((row) => row.seasonCode === season.id).length;
+    const count = seasonRows.filter((row) => seasonMatches(row.seasonCode, season.id)).length;
     const active = season.id === state.selectedSeason ? "active" : "";
     return `<button class="${active}" type="button" data-season="${season.id}">
       <span>${escapeHtml(season.label)}</span>
@@ -775,7 +793,7 @@ function renderFilterTabs() {
     </button>`;
   }).join("");
 
-  const channelRows = baseRows().filter((row) => state.selectedSeason === "all" || row.seasonCode === state.selectedSeason);
+  const channelRows = baseRows().filter((row) => seasonMatches(row.seasonCode, state.selectedSeason));
   document.getElementById("channelTabs").closest(".filter-row").hidden = state.metric === "worstRate";
   document.getElementById("channelTabs").innerHTML = CHANNEL_FILTERS.map((channel) => {
     const count = channel.id === "all" ? channelRows.length : channelRows.filter((row) => Number(row.weeklyChannels?.[channel.id]?.qty || 0) > 0 || Number(row.weeklyChannels?.[channel.id]?.amount || 0) > 0).length;
@@ -815,7 +833,7 @@ function renderTopList() {
   const metric = activeMetric();
   const topRows = rows.slice(0, TOP_LIMIT);
   const ranksBefore = previousRankMap(rows);
-  const seasonLabel = state.selectedSeason === "all" ? "" : `${state.selectedSeason} `;
+  const seasonLabel = state.selectedSeason === "all" ? "" : `${seasonFilterLabel(state.selectedSeason)} `;
   const channelLabel = state.selectedChannel === "all" ? "" : `${activeChannel().label} `;
   const genderLabel = state.selectedGender === "all" ? "" : `${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""} `;
   const rankKind = metric.sortAscending ? "Worst" : "Top";
@@ -1126,7 +1144,10 @@ function reviewFilterButton(group, value, label, count = null) {
 function reviewSeasonOptions(reviews) {
   const preferred = ["D1", "D4", "E1", "E2", "E3", "E4", "F1", "F2", "F3", "F4", "G1", "G2", "G3", "G4"];
   const found = new Set(reviews.map((review) => seasonCode(review.styleCode)).filter(Boolean));
-  return preferred.filter((season) => found.has(season));
+  const options = [];
+  if (found.has("G1") || found.has("G2")) options.push("SS");
+  if (found.has("G3") || found.has("G4")) options.push("FW");
+  return [...options, ...preferred.filter((season) => found.has(season))];
 }
 
 function reviewMatchesDashboard(review) {
@@ -1137,7 +1158,7 @@ function reviewMatchesDashboard(review) {
   const channelOk = reviewDashboardState.channel === "all" || noteOnly || review.channel === reviewDashboardState.channel;
   const noteOk = !noteOnly || Boolean(review.note);
   const categoryOk = reviewDashboardState.category === "all" || styleCategory === reviewDashboardState.category;
-  const seasonOk = reviewDashboardState.season === "all" || styleSeason === reviewDashboardState.season;
+  const seasonOk = seasonMatches(styleSeason, reviewDashboardState.season);
   const ratingOk = reviewDashboardState.rating === "all" || Number(review.rating) === Number(reviewDashboardState.rating);
   const reactionOk = reviewDashboardState.reaction === "all" || review.reaction === reviewDashboardState.reaction;
   const queryOk = !query || [review.productName, review.styleCode, review.message].some((value) => String(value || "").toUpperCase().includes(query));
@@ -1688,7 +1709,7 @@ function closeCoPurchaseModal() {
   if (document.getElementById("detailModal").hidden) document.body.classList.remove("modal-open");
 }
 
-function openDetailModal(styleCode) {
+function openDetailModal(styleCode, options = {}) {
   const row = baseRows().find((item) => item.styleCode === styleCode);
   const style = byStyle.get(styleCode) || row;
   if (!style || !row) return;
@@ -1717,6 +1738,9 @@ function openDetailModal(styleCode) {
   const firstSaleText = formatYmdLabel(style.firstSaleDate) || firstSale?.label || "";
   const salesWeeks = salesWeekCount(style);
   state.detailStyleCode = styleCode;
+  state.detailReturnContext = options.returnTo || "";
+  const backButton = document.getElementById("detailBackButton");
+  backButton.hidden = state.detailReturnContext !== "worst";
   const coButton = document.getElementById("coPurchaseButton");
   coButton.disabled = !(style.coPurchases || []).length;
   coButton.textContent = (style.coPurchases || []).length ? "같이 팔린 스타일 TOP 5" : "같이 팔린 스타일 없음";
@@ -1771,7 +1795,22 @@ function closeDetailModal() {
   document.getElementById("reviewInsightModal").hidden = true;
   document.getElementById("reviewInsightBody").innerHTML = "";
   state.detailStyleCode = "";
+  state.detailReturnContext = "";
+  document.getElementById("detailBackButton").hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+function returnToWorstSalesModal() {
+  document.getElementById("detailModal").hidden = true;
+  document.getElementById("coPurchaseModal").hidden = true;
+  document.getElementById("reviewInsightModal").hidden = true;
+  document.getElementById("reviewInsightBody").innerHTML = "";
+  state.detailStyleCode = "";
+  state.detailReturnContext = "";
+  document.getElementById("detailBackButton").hidden = true;
+  renderWorstSalesModal();
+  document.getElementById("worstSalesModal").hidden = false;
+  document.body.classList.add("modal-open");
 }
 
 function renderSummary() {
@@ -1780,7 +1819,7 @@ function renderSummary() {
   const metricTotal = metric.total(rows);
   const target = targetWeekLabel();
   const displayed = rows.find((row) => row.weekLabel)?.weekLabel || sourceData.latestWeekLabel || sourceData.latestWeek || "-";
-  const seasonLabel = state.selectedSeason === "all" ? "26년도 제품" : `${state.selectedSeason} 시즌`;
+  const seasonLabel = state.selectedSeason === "all" ? "26년도 제품" : `${seasonFilterLabel(state.selectedSeason)} 시즌`;
   const channelLabel = state.selectedChannel === "all" ? "" : ` ${activeChannel().label}`;
   const genderLabel = state.selectedGender === "all" ? "" : ` ${GENDER_FILTERS.find((gender) => gender.id === state.selectedGender)?.label || ""}`;
   document.getElementById("pageTitle").textContent = `${seasonLabel}${channelLabel}${genderLabel} ${metric.label} ${metric.sortAscending ? "Worst" : "Top"} ${TOP_LIMIT}`;
@@ -1862,6 +1901,7 @@ document.getElementById("searchInput").addEventListener("input", (event) => {
 });
 
 document.getElementById("modalClose").addEventListener("click", closeDetailModal);
+document.getElementById("detailBackButton").addEventListener("click", returnToWorstSalesModal);
 document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
 document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
 document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
@@ -1942,8 +1982,8 @@ document.getElementById("worstSalesModal").addEventListener("click", (event) => 
   }
   const row = event.target.closest(".daily-rank-row[data-worst-style]");
   if (row && byStyle.has(row.dataset.worstStyle)) {
-    closeWorstSalesModal();
-    openDetailModal(row.dataset.worstStyle);
+    document.getElementById("worstSalesModal").hidden = true;
+    openDetailModal(row.dataset.worstStyle, { returnTo: "worst" });
     return;
   }
   if (event.target.id === "worstSalesModal") closeWorstSalesModal();

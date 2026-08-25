@@ -1740,7 +1740,8 @@ function openDetailModal(styleCode, options = {}) {
   state.detailStyleCode = styleCode;
   state.detailReturnContext = options.returnTo || "";
   const backButton = document.getElementById("detailBackButton");
-  backButton.hidden = state.detailReturnContext !== "worst";
+  backButton.hidden = !["worst", "daily"].includes(state.detailReturnContext);
+  backButton.textContent = state.detailReturnContext === "daily" ? "일판량으로 돌아가기" : "워스트판으로 돌아가기";
   const coButton = document.getElementById("coPurchaseButton");
   coButton.disabled = !(style.coPurchases || []).length;
   coButton.textContent = (style.coPurchases || []).length ? "같이 팔린 스타일 TOP 5" : "같이 팔린 스타일 없음";
@@ -1811,6 +1812,27 @@ function returnToWorstSalesModal() {
   renderWorstSalesModal();
   document.getElementById("worstSalesModal").hidden = false;
   document.body.classList.add("modal-open");
+}
+
+function returnToDailySalesModal() {
+  document.getElementById("detailModal").hidden = true;
+  document.getElementById("coPurchaseModal").hidden = true;
+  document.getElementById("reviewInsightModal").hidden = true;
+  document.getElementById("reviewInsightBody").innerHTML = "";
+  state.detailStyleCode = "";
+  state.detailReturnContext = "";
+  document.getElementById("detailBackButton").hidden = true;
+  renderDailySalesModal();
+  document.getElementById("dailySalesModal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function returnToSourceModal() {
+  if (state.detailReturnContext === "daily") {
+    returnToDailySalesModal();
+    return;
+  }
+  returnToWorstSalesModal();
 }
 
 function renderSummary() {
@@ -1901,7 +1923,7 @@ document.getElementById("searchInput").addEventListener("input", (event) => {
 });
 
 document.getElementById("modalClose").addEventListener("click", closeDetailModal);
-document.getElementById("detailBackButton").addEventListener("click", returnToWorstSalesModal);
+document.getElementById("detailBackButton").addEventListener("click", returnToSourceModal);
 document.getElementById("coPurchaseButton").addEventListener("click", () => openCoPurchaseModal());
 document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurchaseModal);
 document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
@@ -1947,8 +1969,8 @@ document.getElementById("dailySalesModal").addEventListener("click", (event) => 
   }
   const row = event.target.closest(".daily-rank-row[data-daily-style]");
   if (row && byStyle.has(row.dataset.dailyStyle)) {
-    closeDailySalesModal();
-    openDetailModal(row.dataset.dailyStyle);
+    document.getElementById("dailySalesModal").hidden = true;
+    openDetailModal(row.dataset.dailyStyle, { returnTo: "daily" });
     return;
   }
   if (event.target.id === "dailySalesModal") closeDailySalesModal();

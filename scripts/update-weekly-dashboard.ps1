@@ -22,9 +22,19 @@ function Invoke-Checked {
     [string]$FilePath,
     [string[]]$Arguments
   )
-  & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$FilePath failed with exit code $LASTEXITCODE"
+  Write-Log "Running: $FilePath $($Arguments -join ' ')"
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & $FilePath @Arguments 2>&1 | ForEach-Object {
+      Write-Log "  $_"
+    }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    throw "$FilePath failed with exit code $exitCode"
   }
 }
 
@@ -98,12 +108,18 @@ function Publish-DataFiles {
 }
 
 function Write-SalesStatus {
-  param([string]$Status)
+  param(
+    [string]$Status,
+    [string]$Message = ""
+  )
   $payload = [ordered]@{
     status = $Status
     businessDate = (Get-Date).ToString("yyyy-MM-dd")
     updatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     source = "local-windows-scheduler"
+  }
+  if ($Message) {
+    $payload.message = $Message
   }
   $json = $payload | ConvertTo-Json -Depth 3
   [System.IO.File]::WriteAllText($statusPath, $json, [System.Text.UTF8Encoding]::new($false))
@@ -114,19 +130,19 @@ try {
   Write-Log "Weekly update started."
   Invoke-Checked "node" @("scripts\generate-daas-data.mjs")
   Write-Log "Weekly sales data generation finished."
-} finally {
-  Pop-Location
-}
 
-try {
-  & (Join-Path $scriptRoot "fetch-whoau-images.ps1")
-  Write-Log "WHO.A.U image update finished."
-} catch {
-  Write-Log "WHO.A.U image update failed and was skipped: $($_.Exception.Message)"
-}
+  try {
+    & (Join-Path $scriptRoot "fetch-whoau-images.ps1") 2>&1 | ForEach-Object {
+      Write-Log "  $_"
+    }
+    if ($LASTEXITCODE -ne 0) {
+      throw "fetch-whoau-images.ps1 failed with exit code $LASTEXITCODE"
+    }
+    Write-Log "WHO.A.U image update finished."
+  } catch {
+    Write-Log "WHO.A.U image update failed and was skipped: $($_.Exception.Message)"
+  }
 
-Push-Location $projectRoot
-try {
   Write-Log "Review insight update started after weekly sales data."
   Invoke-Checked "node" @("scripts\fetch-review-insights.mjs")
   Write-Log "Review insight update finished."
@@ -135,6 +151,11 @@ try {
   Publish-DataFiles @("data\app-data.js", "data\image-map.js", "data\review-insights.js", "data\sales-update-status.json") "Update weekly sales dashboard data"
 
   Write-Log "Weekly sales update finished."
+} catch {
+  $message = $_.Exception.Message
+  Write-Log "Weekly sales update failed: $message"
+  Write-SalesStatus "failed" $message
+  exit 1
 } finally {
   Pop-Location
 }

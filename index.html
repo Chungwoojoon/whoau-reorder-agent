@@ -17,6 +17,7 @@
         <button type="button" data-metric="normalRate">정판율</button>
         <button class="review-nav-button" id="globalReviewInsightButton" type="button">리뷰 인사이트</button>
         <button class="daily-nav-button" id="dailySalesButton" type="button">일판량</button>
+        <button class="daily-nav-button" id="weeklyCumulativeSalesButton" type="button">주간 누적</button>
         <button class="worst-nav-button" id="worstSalesButton" type="button">워스트판</button>
       </nav>
 
@@ -152,6 +153,19 @@
           <button class="modal-close" id="dailySalesClose" type="button" aria-label="닫기">×</button>
         </header>
         <div class="daily-sales-body" id="dailySalesBody"></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop nested" id="weeklyCumulativeSalesModal" hidden>
+      <section class="daily-sales-modal" role="dialog" aria-modal="true" aria-labelledby="weeklyCumulativeSalesTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">WEEK-TO-DATE SALES</p>
+            <h2 id="weeklyCumulativeSalesTitle">주간 누적 판매량 Top 20</h2>
+          </div>
+          <button class="modal-close" id="weeklyCumulativeSalesClose" type="button" aria-label="닫기">×</button>
+        </header>
+        <div class="daily-sales-body" id="weeklyCumulativeSalesBody"></div>
       </section>
     </div>
 

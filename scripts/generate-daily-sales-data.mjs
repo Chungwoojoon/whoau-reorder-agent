@@ -40,6 +40,14 @@ function previousDay(reference = new Date()) {
   return target;
 }
 
+function weekStart(date) {
+  const start = new Date(date);
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 function toNumber(value) {
   return Number(value || 0);
 }
@@ -111,6 +119,8 @@ loadEnv(envPath);
 
 const target = previousDay();
 const targetYmd = ymd(target);
+const weekStartDate = weekStart(target);
+const weekStartYmd = ymd(weekStartDate);
 
 const sql = `
 WITH total_mart_dedup AS (
@@ -123,7 +133,7 @@ WITH total_mart_dedup AS (
     t.salejung,
     t.salejungamt
   FROM fpw.total_mart t
-  WHERE t.calday = $1
+  WHERE t.calday BETWEEN $2 AND $1
     AND t.material LIKE 'WH%'
     AND SUBSTRING(LEFT(t.material, 10) FROM 6 FOR 1) <> 'B'
     AND SUBSTRING(LEFT(t.material, 10) FROM 5 FOR 2) IN ('G1', 'G2', 'G3', 'G4')
@@ -139,12 +149,21 @@ daily AS (
   SELECT
     LEFT(t.material, 10) AS material,
     t.plant,
-    SUM(COALESCE(t.sale, 0)) AS sale_qty,
-    SUM(COALESCE(t.saleamt, 0)) AS sale_amt,
-    SUM(COALESCE(t.salejung, 0)) AS normal_qty,
-    SUM(COALESCE(t.salejungamt, 0)) AS normal_amt
+    SUM(CASE WHEN t.calday = $1 THEN COALESCE(t.sale, 0) ELSE 0 END) AS sale_qty,
+    SUM(CASE WHEN t.calday = $1 THEN COALESCE(t.saleamt, 0) ELSE 0 END) AS sale_amt,
+    SUM(CASE WHEN t.calday = $1 THEN COALESCE(t.salejung, 0) ELSE 0 END) AS normal_qty,
+    SUM(CASE WHEN t.calday = $1 THEN COALESCE(t.salejungamt, 0) ELSE 0 END) AS normal_amt,
+    SUM(COALESCE(t.sale, 0)) AS wtd_sale_qty,
+    SUM(COALESCE(t.saleamt, 0)) AS wtd_sale_amt,
+    SUM(COALESCE(t.salejung, 0)) AS wtd_normal_qty,
+    SUM(COALESCE(t.salejungamt, 0)) AS wtd_normal_amt
   FROM total_mart_dedup t
   GROUP BY LEFT(t.material, 10), t.plant
+  HAVING
+    SUM(COALESCE(t.sale, 0)) <> 0
+    OR SUM(COALESCE(t.saleamt, 0)) <> 0
+    OR SUM(COALESCE(t.salejung, 0)) <> 0
+    OR SUM(COALESCE(t.salejungamt, 0)) <> 0
 ),
 tmaterial AS (
   SELECT
@@ -181,7 +200,11 @@ SELECT
   d.sale_qty,
   d.sale_amt,
   d.normal_qty,
-  d.normal_amt
+  d.normal_amt,
+  d.wtd_sale_qty,
+  d.wtd_sale_amt,
+  d.wtd_normal_qty,
+  d.wtd_normal_amt
 FROM daily d
 LEFT JOIN tmaterial tm ON d.material = tm.material
 LEFT JOIN pmaterial pm ON d.material = pm.material
@@ -193,7 +216,7 @@ const client = getClient();
 await client.connect();
 let rows = [];
 try {
-  const result = await client.query(sql, [targetYmd]);
+  const result = await client.query(sql, [targetYmd, weekStartYmd]);
   rows = result.rows;
 } finally {
   await client.end();
@@ -213,6 +236,11 @@ for (const row of rows) {
       normalQty: 0,
       dailyAmount: 0,
       normalAmount: 0,
+      weekToDateQty: 0,
+      weekToDateNormalQty: 0,
+      weekToDateAmount: 0,
+      weekToDateNormalAmount: 0,
+      weekToDateChannels: emptyChannels(),
       channels: emptyChannels(),
     });
   }
@@ -224,7 +252,12 @@ for (const row of rows) {
   style.normalQty += toNumber(row.normal_qty);
   style.dailyAmount += amount;
   style.normalAmount += toNumber(row.normal_amt);
+  style.weekToDateQty += toNumber(row.wtd_sale_qty);
+  style.weekToDateNormalQty += toNumber(row.wtd_normal_qty);
+  style.weekToDateAmount += toNumber(row.wtd_sale_amt);
+  style.weekToDateNormalAmount += toNumber(row.wtd_normal_amt);
   addChannel(style.channels, channel, qty, amount);
+  addChannel(style.weekToDateChannels, channel, toNumber(row.wtd_sale_qty), toNumber(row.wtd_sale_amt));
 }
 
 const styles = [...grouped.values()]
@@ -235,13 +268,25 @@ const styles = [...grouped.values()]
     normalQty: Math.round(style.normalQty),
     dailyAmount: Math.round(style.dailyAmount),
     normalAmount: Math.round(style.normalAmount),
+    weekToDateQty: Math.round(style.weekToDateQty),
+    weekToDateNormalQty: Math.round(style.weekToDateNormalQty),
+    weekToDateAmount: Math.round(style.weekToDateAmount),
+    weekToDateNormalAmount: Math.round(style.weekToDateNormalAmount),
     channels: Object.fromEntries(Object.entries(style.channels).map(([key, value]) => [key, {
       qty: Math.round(value.qty),
       amount: Math.round(value.amount),
     }])),
+    weekToDateChannels: Object.fromEntries(Object.entries(style.weekToDateChannels).map(([key, value]) => [key, {
+      qty: Math.round(value.qty),
+      amount: Math.round(value.amount),
+    }])),
   }))
-  .filter((style) => style.dailyQty !== 0 || style.dailyAmount !== 0)
+  .filter((style) => style.dailyQty !== 0 || style.dailyAmount !== 0 || style.weekToDateQty !== 0 || style.weekToDateAmount !== 0)
   .sort((a, b) => b.dailyQty - a.dailyQty || b.dailyAmount - a.dailyAmount || a.styleCode.localeCompare(b.styleCode));
+
+const weekToDateStyles = styles
+  .filter((style) => style.weekToDateQty !== 0 || style.weekToDateAmount !== 0)
+  .sort((a, b) => b.weekToDateQty - a.weekToDateQty || b.weekToDateAmount - a.weekToDateAmount || a.styleCode.localeCompare(b.styleCode));
 
 const payload = {
   generatedAt: new Intl.DateTimeFormat("sv-SE", {
@@ -256,11 +301,15 @@ const payload = {
   }).format(new Date()),
   targetDate: targetYmd,
   targetDateLabel: displayDate(targetYmd),
+  weekToDateStart: weekStartYmd,
+  weekToDateStartLabel: displayDate(weekStartYmd),
+  weekToDateLabel: `${displayDate(weekStartYmd)}~${displayDate(targetYmd)}`,
   source: "DaaS fpw.total_mart",
   materialPrefix: "WH",
   styles,
+  weekToDate: weekToDateStyles,
 };
 
 fs.writeFileSync(outPath, `window.WHOAU_DAILY_SALES = ${JSON.stringify(payload)};\n`, "utf8");
 console.log(`Generated ${outPath}`);
-console.log(`styles=${styles.length} targetDate=${targetYmd}`);
+console.log(`styles=${styles.length} targetDate=${targetYmd} weekToDate=${weekStartYmd}~${targetYmd}`);

@@ -68,6 +68,11 @@ const dailySalesState = {
   query: "",
 };
 
+const weeklyCumulativeSalesState = {
+  category: "all",
+  query: "",
+};
+
 const worstSalesState = {
   category: "all",
   season: "all",
@@ -442,6 +447,27 @@ function dailyRows() {
   });
 }
 
+function weeklyCumulativeRows() {
+  const sourceRows = dailySalesData.weekToDate || dailySalesData.styles || [];
+  return sourceRows.map((row) => {
+    const weeklyStyle = byStyle.get(row.styleCode) || {};
+    const group = categoryFor(row.styleCode);
+    return {
+      ...row,
+      productName: row.styleName,
+      itemCode: itemCode(row.styleCode),
+      itemLabel: group?.label || row.category || "기타",
+      inboundQty: Number(weeklyStyle.inboundQty || 0),
+      stock: Number(weeklyStyle.stock || 0),
+      price: Number(row.price || weeklyStyle.price || 0),
+      cumulativeQty: Number(row.weekToDateQty || 0),
+      cumulativeNormalQty: Number(row.weekToDateNormalQty || 0),
+      cumulativeAmount: Number(row.weekToDateAmount || 0),
+      cumulativeNormalAmount: Number(row.weekToDateNormalAmount || 0),
+    };
+  }).filter((row) => row.cumulativeQty !== 0 || row.cumulativeAmount !== 0);
+}
+
 function filteredDailyRows() {
   const selected = ITEM_GROUPS.find((group) => group.id === dailySalesState.category) || ITEM_GROUPS[0];
   const query = dailySalesState.query.trim().toLowerCase();
@@ -452,6 +478,18 @@ function filteredDailyRows() {
       return `${row.styleCode} ${row.styleName}`.toLowerCase().includes(query);
     })
     .sort((a, b) => Number(b.dailyQty || 0) - Number(a.dailyQty || 0) || Number(b.dailyAmount || 0) - Number(a.dailyAmount || 0) || String(a.styleCode).localeCompare(String(b.styleCode)));
+}
+
+function filteredWeeklyCumulativeRows() {
+  const selected = ITEM_GROUPS.find((group) => group.id === weeklyCumulativeSalesState.category) || ITEM_GROUPS[0];
+  const query = weeklyCumulativeSalesState.query.trim().toLowerCase();
+  return weeklyCumulativeRows()
+    .filter((row) => !selected.codes || selected.codes.includes(row.itemCode))
+    .filter((row) => {
+      if (!query) return true;
+      return `${row.styleCode} ${row.styleName}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => Number(b.cumulativeQty || 0) - Number(a.cumulativeQty || 0) || Number(b.cumulativeAmount || 0) - Number(a.cumulativeAmount || 0) || String(a.styleCode).localeCompare(String(b.styleCode)));
 }
 
 function renderDailyCategoryTabs(rows) {
@@ -465,10 +503,100 @@ function renderDailyCategoryTabs(rows) {
   }).join("");
 }
 
+function renderWeeklyCumulativeCategoryTabs(rows) {
+  return ITEM_GROUPS.map((group) => {
+    const count = group.id === "all" ? rows.length : rows.filter((row) => group.codes.includes(row.itemCode)).length;
+    const active = group.id === weeklyCumulativeSalesState.category ? "active" : "";
+    return `<button class="${active}" type="button" data-weekly-cumulative-category="${group.id}">
+      <span>${escapeHtml(group.label)}</span>
+      <em>${numberFormat.format(count)}</em>
+    </button>`;
+  }).join("");
+}
+
 function dailyImageFor(row) {
   const image = imageMap[row.styleCode];
   if (!image?.imageUrl) return `<div class="thumb fallback">${escapeHtml(row.itemCode)}</div>`;
   return `<img class="thumb" src="${image.imageUrl}" alt="${escapeHtml(row.styleName || row.styleCode)}" loading="lazy" referrerpolicy="no-referrer" />`;
+}
+
+function renderWeeklyCumulativeSalesModal() {
+  const allRows = weeklyCumulativeRows();
+  const rows = filteredWeeklyCumulativeRows();
+  const topRows = rows.slice(0, TOP_LIMIT);
+  const selected = ITEM_GROUPS.find((group) => group.id === weeklyCumulativeSalesState.category) || ITEM_GROUPS[0];
+  const totalQty = rows.reduce((sum, row) => sum + Number(row.cumulativeQty || 0), 0);
+  const maxValue = Math.max(...topRows.map((row) => Number(row.cumulativeQty || 0)), 0) || 1;
+  document.getElementById("weeklyCumulativeSalesTitle").textContent = `${selected.label} 주간 누적 판매량 Top ${TOP_LIMIT}`;
+  document.getElementById("weeklyCumulativeSalesBody").innerHTML = `
+    <section class="daily-sales-shell">
+      <div class="daily-sales-summary">
+        <article>
+          <span>판매 기준</span>
+          <strong>${escapeHtml(dailySalesData.weekToDateLabel || dailySalesData.targetDateLabel || "-")}</strong>
+          <small>월요일부터 어제까지</small>
+        </article>
+        <article>
+          <span>스타일</span>
+          <strong>${numberFormat.format(allRows.length)}</strong>
+          <small>주간 누적 발생 스타일</small>
+        </article>
+        <article>
+          <span>${escapeHtml(selected.label)} 누적 판매량</span>
+          <strong>${numberFormat.format(totalQty)}pcs</strong>
+          <small>${numberFormat.format(rows.length)}개 스타일</small>
+        </article>
+        <article>
+          <span>생성</span>
+          <strong>${escapeHtml(dailySalesData.generatedAt || "-")}</strong>
+          <small>일판량 업데이트 때 같이 갱신</small>
+        </article>
+      </div>
+      <div class="daily-sales-controls">
+        <div class="tabs daily-tabs">${renderWeeklyCumulativeCategoryTabs(allRows)}</div>
+        <label class="search-box">
+          <span>검색</span>
+          <input id="weeklyCumulativeSalesSearch" type="search" placeholder="스타일코드 또는 상품명" value="${escapeHtml(weeklyCumulativeSalesState.query)}" />
+        </label>
+      </div>
+      <section class="leaderboard daily-leaderboard">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">TOP 20</p>
+            <h3>${escapeHtml(selected.label)} 주간 누적 판매량 Top ${TOP_LIMIT}</h3>
+          </div>
+          <p>${numberFormat.format(rows.length)}개 스타일 중 주간 누적 판매량 상위 ${numberFormat.format(topRows.length)}개</p>
+        </div>
+        <div class="rank-list">
+          ${topRows.length ? topRows.map((row, index) => {
+            const qty = Number(row.cumulativeQty || 0);
+            const bar = Math.max(4, Math.round((qty / maxValue) * 100));
+            return `<article class="rank-row daily-rank-row" data-weekly-cumulative-style="${escapeHtml(row.styleCode)}">
+              <div class="rank">${index + 1}</div>
+              ${dailyImageFor(row)}
+              <div class="product">
+                <div class="product-title">
+                  <strong>${escapeHtml(row.styleName || row.styleCode)}</strong>
+                  <span>${escapeHtml(row.itemLabel)} · ${escapeHtml(row.itemCode)}</span>
+                </div>
+                <div class="bar" aria-hidden="true"><span style="width:${bar}%"></span></div>
+                <div class="meta">
+                  <span>${escapeHtml(row.styleCode)}</span>
+                  <span>누적 정판량 ${numberFormat.format(Number(row.cumulativeNormalQty || 0))}pcs</span>
+                  <span>입고 ${numberFormat.format(Number(row.inboundQty || 0))}pcs</span>
+                  <span>재고 ${numberFormat.format(Number(row.stock || 0))}pcs</span>
+                </div>
+              </div>
+              <div class="qty">
+                <strong>${numberFormat.format(qty)}</strong>
+                <span>pcs</span>
+                <small>${compactMoney(row.cumulativeAmount || qty * Number(row.price || 0))}</small>
+              </div>
+            </article>`;
+          }).join("") : `<div class="empty">조건에 맞는 주간 누적 판매량 데이터가 없습니다.</div>`}
+        </div>
+      </section>
+    </section>`;
 }
 
 function renderDailySalesModal() {
@@ -558,6 +686,17 @@ function openDailySalesModal() {
 
 function closeDailySalesModal() {
   document.getElementById("dailySalesModal").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function openWeeklyCumulativeSalesModal() {
+  renderWeeklyCumulativeSalesModal();
+  document.getElementById("weeklyCumulativeSalesModal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeWeeklyCumulativeSalesModal() {
+  document.getElementById("weeklyCumulativeSalesModal").hidden = true;
   document.body.classList.remove("modal-open");
 }
 
@@ -1740,8 +1879,12 @@ function openDetailModal(styleCode, options = {}) {
   state.detailStyleCode = styleCode;
   state.detailReturnContext = options.returnTo || "";
   const backButton = document.getElementById("detailBackButton");
-  backButton.hidden = !["worst", "daily"].includes(state.detailReturnContext);
-  backButton.textContent = state.detailReturnContext === "daily" ? "일판량으로 돌아가기" : "워스트판으로 돌아가기";
+  backButton.hidden = !["worst", "daily", "weeklyCumulative"].includes(state.detailReturnContext);
+  backButton.textContent = state.detailReturnContext === "daily"
+    ? "일판량으로 돌아가기"
+    : state.detailReturnContext === "weeklyCumulative"
+      ? "주간 누적으로 돌아가기"
+      : "워스트판으로 돌아가기";
   const coButton = document.getElementById("coPurchaseButton");
   coButton.disabled = !(style.coPurchases || []).length;
   coButton.textContent = (style.coPurchases || []).length ? "같이 팔린 스타일 TOP 5" : "같이 팔린 스타일 없음";
@@ -1827,9 +1970,26 @@ function returnToDailySalesModal() {
   document.body.classList.add("modal-open");
 }
 
+function returnToWeeklyCumulativeSalesModal() {
+  document.getElementById("detailModal").hidden = true;
+  document.getElementById("coPurchaseModal").hidden = true;
+  document.getElementById("reviewInsightModal").hidden = true;
+  document.getElementById("reviewInsightBody").innerHTML = "";
+  state.detailStyleCode = "";
+  state.detailReturnContext = "";
+  document.getElementById("detailBackButton").hidden = true;
+  renderWeeklyCumulativeSalesModal();
+  document.getElementById("weeklyCumulativeSalesModal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+
 function returnToSourceModal() {
   if (state.detailReturnContext === "daily") {
     returnToDailySalesModal();
+    return;
+  }
+  if (state.detailReturnContext === "weeklyCumulative") {
+    returnToWeeklyCumulativeSalesModal();
     return;
   }
   returnToWorstSalesModal();
@@ -1929,6 +2089,8 @@ document.getElementById("coPurchaseClose").addEventListener("click", closeCoPurc
 document.getElementById("reviewInsightClose").addEventListener("click", closeReviewInsightModal);
 document.getElementById("dailySalesButton").addEventListener("click", openDailySalesModal);
 document.getElementById("dailySalesClose").addEventListener("click", closeDailySalesModal);
+document.getElementById("weeklyCumulativeSalesButton").addEventListener("click", openWeeklyCumulativeSalesModal);
+document.getElementById("weeklyCumulativeSalesClose").addEventListener("click", closeWeeklyCumulativeSalesModal);
 document.getElementById("worstSalesButton").addEventListener("click", openWorstSalesModal);
 document.getElementById("worstSalesClose").addEventListener("click", closeWorstSalesModal);
 document.getElementById("modalBody").addEventListener("click", (event) => {
@@ -1980,6 +2142,29 @@ document.getElementById("dailySalesModal").addEventListener("input", (event) => 
   dailySalesState.query = event.target.value;
   renderDailySalesModal();
   const input = document.getElementById("dailySalesSearch");
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+});
+document.getElementById("weeklyCumulativeSalesModal").addEventListener("click", (event) => {
+  const categoryButton = event.target.closest("button[data-weekly-cumulative-category]");
+  if (categoryButton) {
+    weeklyCumulativeSalesState.category = categoryButton.dataset.weeklyCumulativeCategory;
+    renderWeeklyCumulativeSalesModal();
+    return;
+  }
+  const row = event.target.closest(".daily-rank-row[data-weekly-cumulative-style]");
+  if (row && byStyle.has(row.dataset.weeklyCumulativeStyle)) {
+    document.getElementById("weeklyCumulativeSalesModal").hidden = true;
+    openDetailModal(row.dataset.weeklyCumulativeStyle, { returnTo: "weeklyCumulative" });
+    return;
+  }
+  if (event.target.id === "weeklyCumulativeSalesModal") closeWeeklyCumulativeSalesModal();
+});
+document.getElementById("weeklyCumulativeSalesModal").addEventListener("input", (event) => {
+  if (event.target.id !== "weeklyCumulativeSalesSearch") return;
+  weeklyCumulativeSalesState.query = event.target.value;
+  renderWeeklyCumulativeSalesModal();
+  const input = document.getElementById("weeklyCumulativeSalesSearch");
   input?.focus();
   input?.setSelectionRange(input.value.length, input.value.length);
 });
@@ -2035,6 +2220,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!document.getElementById("reviewInsightModal").hidden) closeReviewInsightModal();
   else if (!document.getElementById("worstSalesModal").hidden) closeWorstSalesModal();
+  else if (!document.getElementById("weeklyCumulativeSalesModal").hidden) closeWeeklyCumulativeSalesModal();
   else if (!document.getElementById("dailySalesModal").hidden) closeDailySalesModal();
   else if (!document.getElementById("coPurchaseModal").hidden) closeCoPurchaseModal();
   else if (!document.getElementById("detailModal").hidden) closeDetailModal();

@@ -1,1 +1,1 @@
-window.WHOAU_DAILY_SALES = {"generatedAt":"2026-10-21 09:30:21","targetDate":"20261020","targetDateLabel":"10/20","weekToDateStart":"20261019","weekToDateStartLabel":"10/19","weekToDateLabel":"10/19~10/20","source":"DaaS fpw.total_mart","materialPrefix":"WH","styles":[],"weekToDate":[]};
+window.WHOAU_DAILY_SALES = {"generatedAt":"2026-10-23 09:30:21","targetDate":"20261022","targetDateLabel":"10/22","weekToDateStart":"20261019","weekToDateStartLabel":"10/19","weekToDateLabel":"10/19~10/22","source":"DaaS fpw.total_mart","materialPrefix":"WH","styles":[],"weekToDate":[]};
